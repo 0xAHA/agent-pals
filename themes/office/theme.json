@@ -1,0 +1,21 @@
+{
+  "name": "office",
+  "frame_w": 16,
+  "frame_h": 20,
+  "sheet": "sheet.png",
+  "anims": {
+    "idle":  { "row": 0, "frames": 4, "fps": 3 },
+    "walk":  { "row": 1, "frames": 4, "fps": 8 },
+    "think": { "row": 2, "frames": 4, "fps": 3 },
+    "work":  { "row": 3, "frames": 4, "fps": 6 },
+    "wait":  { "row": 4, "frames": 4, "fps": 5 },
+    "talk":  { "row": 5, "frames": 4, "fps": 5 },
+    "done":  { "row": 6, "frames": 4, "fps": 6 }
+  },
+  "swaps": [
+    { "key": "#5a3a22", "choices": ["#5a3a22", "#1e1a1a", "#c8a050", "#a0522d", "#8c8c96", "#d26e2d"] },
+    { "key": "#f1c27d", "choices": ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac"] },
+    { "key": "#3a6ea5", "choices": ["#3a6ea5", "#a53a5a", "#3aa56e", "#7a4fa5", "#d2d2dc", "#d2a03a"] },
+    { "key": "#2f3542", "choices": ["#2f3542", "#4a3b2a", "#28466e", "#555555"] }
+  ]
+}

@@ -1,0 +1,2 @@
+# Merge into %USERPROFILE%\.codex\config.toml — Codex appends the JSON payload as the last argument.
+notify = ["C:\\Tools\\agent-pals\\hook-relay.exe", "--agent", "codex", "--arg"]

@@ -1,0 +1,9 @@
+{
+  "theme": "office",
+  "scale": 3,
+  "fps": 10,
+  "max_agents": 8,
+  "strip_width": 160,
+  "margin_px": 8,
+  "visible": true
+}

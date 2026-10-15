@@ -1,0 +1,21 @@
+{
+  "name": "construction",
+  "frame_w": 16,
+  "frame_h": 20,
+  "sheet": "sheet.png",
+  "anims": {
+    "idle":  { "row": 0, "frames": 4, "fps": 3 },
+    "walk":  { "row": 1, "frames": 4, "fps": 8 },
+    "think": { "row": 2, "frames": 4, "fps": 3 },
+    "work":  { "row": 3, "frames": 4, "fps": 4 },
+    "wait":  { "row": 4, "frames": 4, "fps": 5 },
+    "talk":  { "row": 5, "frames": 4, "fps": 5 },
+    "done":  { "row": 6, "frames": 4, "fps": 6 }
+  },
+  "swaps": [
+    { "key": "#ffc828", "choices": ["#ffc828", "#f0f0f0", "#ff7a1e", "#2d78d2", "#2db45a"] },
+    { "key": "#f1c27d", "choices": ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac"] },
+    { "key": "#ff781e", "choices": ["#ff781e", "#b4e61e"] },
+    { "key": "#3c466e", "choices": ["#3c466e", "#4a3b2a", "#555555"] }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "claude-code",
+  "display_name": "Claude Code",
+  "event_field": "hook_event_name",
+  "session_field": "session_id",
+  "label_field": "cwd",
+  "idle_timeout_secs": 900,
+  "rules": [
+    { "event": "PreToolUse", "when": { "tool_name": "Task" },  "state": "working", "action": "spawn_helper" },
+    { "event": "PreToolUse", "when": { "tool_name": "Agent" }, "state": "working", "action": "spawn_helper" },
+    { "event": "PreToolUse",        "state": "working" },
+    { "event": "PostToolUse",       "state": "thinking" },
+    { "event": "UserPromptSubmit",  "state": "thinking" },
+    { "event": "PreCompact",        "state": "thinking" },
+    { "event": "Notification",      "state": "waiting" },
+    { "event": "PermissionRequest", "state": "waiting" },
+    { "event": "SubagentStop",      "state": "working", "action": "dismiss_helper" },
+    { "event": "Stop",              "state": "done" },
+    { "event": "SessionStart",      "state": "idle" },
+    { "event": "SessionEnd",        "state": "idle", "action": "leave" }
+  ]
+}

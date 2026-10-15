@@ -1,0 +1,11 @@
+{
+  "id": "codex",
+  "display_name": "Codex CLI",
+  "event_field": "type",
+  "session_field": "thread-id",
+  "label_field": "cwd",
+  "idle_timeout_secs": 900,
+  "rules": [
+    { "event": "agent-turn-complete", "state": "done" }
+  ]
+}
