@@ -1,11 +1,21 @@
 {
   "id": "codex",
-  "display_name": "Codex CLI",
-  "event_field": "type",
-  "session_field": "thread-id",
+  "display_name": "Codex",
+  "event_field": "hook_event_name",
+  "session_field": "session_id",
+  "subagent_field": "agent_id",
   "label_field": "cwd",
   "idle_timeout_secs": 900,
   "rules": [
-    { "event": "agent-turn-complete", "state": "done" }
+    { "event": "SubagentStart",     "state": "working", "action": "talk" },
+    { "event": "SubagentStop",      "state": "done",    "action": "leave" },
+    { "event": "PreToolUse",        "state": "working" },
+    { "event": "PostToolUse",       "state": "thinking" },
+    { "event": "UserPromptSubmit",  "state": "thinking" },
+    { "event": "PreCompact",        "state": "thinking" },
+    { "event": "PermissionRequest", "state": "waiting" },
+    { "event": "Stop",              "state": "done" },
+    { "event": "SessionStart",      "state": "idle" },
+    { "event": "SessionEnd",        "state": "idle", "action": "leave" }
   ]
 }

@@ -1,7 +1,8 @@
 # Agent Pals
 
 Little pixel-art characters that live above your Windows taskbar and act out what your coding
-agents are doing: working, thinking, waiting for you, finishing up, or calling in help.
+agents are doing: working, thinking, waiting for you, finishing up, or calling in help. Works
+with **Claude Code** and **Codex**.
 
 ![Agent Pals demo](assets/demo.gif)
 
@@ -18,11 +19,12 @@ older versions are on the [Releases page](https://github.com/0xAHA/agent-pals/re
 
 ## What you'll see
 
-Each Claude Code session gets its own pal. Hover over the tray icon for a summary, including
-which project folders need you.
+Each agent session gets its own pal. Hover over the tray icon for a summary, including which
+project folders need you. A pal that has been idle for two minutes steps away, and comes back
+as the same character when its agent does something.
 
 | The pal is… | When the agent is… |
-|---|---|
+| --- | --- |
 | hammering, typing, swinging a blade… | running a tool |
 | showing `…` | thinking between steps |
 | bouncing a `!` | waiting for you (a permission prompt or a question) |
@@ -58,16 +60,22 @@ Run the installer. It:
 - installs to `%LOCALAPPDATA%\Programs\AgentPals` and adds a Start menu shortcut
 - starts Agent Pals now and whenever you sign in (untick **Start with Windows** in the tray to stop that)
 - adds its hooks to Claude Code's `~/.claude/settings.json`, keeping your original as
-  `settings.json.agent-pals.bak`. Any other hooks you have are left alone.
+  `settings.json.agent-pals.bak`
+- if Codex is installed, adds its hooks to `~/.codex/hooks.json` the same way
 
-Start a new Claude Code session and your pal appears. Uninstalling removes the hooks again.
+Any other hooks you have are left alone, and uninstalling removes Agent Pals' hooks again.
+
+- **Claude Code:** start a new session and your pal appears.
+- **Codex:** Codex only runs hooks you've approved. Run `/hooks` in Codex once and trust the
+  Agent Pals entries, then start a new session. (Codex asks again after an update that changes
+  the hook command.)
 
 ## The tray menu
 
 Right-click the pal icon in the notification area.
 
 | Item | Does |
-|---|---|
+| --- | --- |
 | Show pals | Hide or show the strip without quitting |
 | Scale | Size of the pals. **2x** and **4x** are pixel-perfect |
 | Theme | A character family, or **random** |
@@ -94,7 +102,7 @@ release before anything runs. It then upgrades in place and restarts, keeping yo
 also edit it by hand; quit and restart the app afterwards.
 
 | Key | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `theme` | `"random"` | A theme folder name, `local/<name>` for your own, or `random` |
 | `scale` | `2` | Screen pixels per sprite pixel-block |
 | `fps` | `10` | Animation frame rate (2 to 30) |
@@ -103,6 +111,7 @@ also edit it by hand; quit and restart the app afterwards.
 | `margin_px` | `8` | Gap between the strip and the taskbar |
 | `visible` | `true` | Same as **Show pals** |
 | `updates` | `"notify"` | `notify`, `auto` or `off` |
+| `hide_idle_secs` | `120` | Seconds idle before a pal steps away; `0` keeps it on screen |
 
 ## Privacy
 
@@ -117,21 +126,24 @@ update itself. **Don't check** turns that off.
 
 ## How it works
 
-```
-Claude Code ──hook──▶ hook-relay.exe ──named pipe──▶ agent-pals.exe ──▶ overlay above the taskbar
+```text
+Claude Code / Codex ──hook──▶ hook-relay.exe ──named pipe──▶ agent-pals.exe ──▶ overlay above the taskbar
 ```
 
 - **`hook-relay.exe`** runs once per hook event. It slims the payload and forwards it, then
   always exits quietly and successfully, so it can never block or break your agent.
 - **`profiles/*.json`** map events to what a pal does. `claude-code.json` drives Claude Code. A
-  profile for another agent is a drop-in file; `codex.json` is a minimal example.
+  profile for another agent is a drop-in file; `codex.json` shows how little one needs.
 - **`themes/<name>/`** each hold a `sheet.png` of frames and a `theme.json` describing them.
 
 ### Setting up the hooks yourself
 
 The installer does this for you. If you build from source, run
-`hook-relay.exe --install-claude-hooks`, or copy
-[`examples/claude-code-settings.json`](examples/claude-code-settings.json) and change the path.
+`hook-relay.exe --install-claude-hooks` and/or `hook-relay.exe --install-codex-hooks` (the
+`--uninstall-…` forms take them out again). Or copy
+[`examples/claude-code-settings.json`](examples/claude-code-settings.json) /
+[`examples/codex-hooks.json`](examples/codex-hooks.json) and change the path.
+
 Use **forward slashes** in the path: Claude Code runs hooks through Git Bash on Windows, which
 treats backslashes as escape characters.
 

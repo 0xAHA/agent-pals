@@ -2,6 +2,19 @@
 
 Each release's notes are taken from its section here by the release workflow.
 
+## [0.3.1]
+
+- **Idle pals step away.** A pal that has been idle for 2 minutes walks off; it comes back,
+  as the same character, with its agent's next event. A pal never leaves while its agent is
+  working (however long a step takes) or while its subagents are still on screen. Change the
+  delay with `hide_idle_secs` in `config.json` (`0` keeps pals on screen).
+- **Codex support.** Codex's hooks now drive pals just like Claude Code's: working, thinking,
+  waiting for permission, done, and a pal per subagent. If Codex is installed, the installer
+  adds its hooks to `~/.codex/hooks.json`. Codex only runs new hooks once you approve them: run
+  `/hooks` in Codex and trust the Agent Pals entries.
+- Hook commands are only quoted when the install path contains a space, so they work in any
+  shell.
+
 ## [0.3.0]
 
 First public release.

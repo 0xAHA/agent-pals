@@ -2,6 +2,7 @@ use crate::ipc::Envelope;
 use crate::profile::{Action, AgentState, Profiles};
 use crate::render::{draw_bubble, Bubble, Canvas, BUBBLE_H};
 use crate::sprites::{mix, seed_of, Theme};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 const WALK_SPEED: f32 = 20.0; // logical px / sec
@@ -144,13 +145,31 @@ pub struct Scene {
     max: usize,
     helper_seq: u64,
     n_themes: usize,
+    /// Idle this long and a pal walks off; it comes back on its agent's next event.
+    hide_idle: Option<Duration>,
+    /// Theme of pals that left, so a session that comes back keeps its character.
+    remembered: HashMap<String, usize>,
 }
 
 impl Scene {
     pub fn new(strip_w: f32, frame_w: f32, max: usize) -> Self {
-        let mut s = Scene { pals: Vec::new(), strip_w, frame_w, max, helper_seq: 0, n_themes: 1 };
+        let mut s = Scene {
+            pals: Vec::new(),
+            strip_w,
+            frame_w,
+            max,
+            helper_seq: 0,
+            n_themes: 1,
+            hide_idle: None,
+            remembered: HashMap::new(),
+        };
         s.set_frame_w(frame_w);
         s
+    }
+
+    /// 0 keeps idle pals on stage until the profile's idle timeout.
+    pub fn set_hide_idle(&mut self, secs: u64) {
+        self.hide_idle = (secs > 0).then(|| Duration::from_secs(secs));
     }
 
     /// How many themes are in play. Pals already on stage keep their slot (wrapped if it shrank).
@@ -159,9 +178,13 @@ impl Scene {
     }
 
     /// The least-used theme among pals on stage, ties broken by the seed. Families don't
-    /// repeat until every one is showing, and a pal keeps its family for life.
-    fn deal_theme(&self, seed: u64) -> usize {
+    /// repeat until every one is showing, and a pal keeps its family for life, including
+    /// across a spell off stage.
+    fn deal_theme(&self, key: &str, seed: u64) -> usize {
         let n = self.n_themes;
+        if let Some(&t) = self.remembered.get(key) {
+            return t % n;
+        }
         let mut counts = vec![0usize; n];
         for p in self.pals.iter().filter(|p| !p.leaving) {
             counts[p.theme % n] += 1;
@@ -226,7 +249,7 @@ impl Scene {
                 } else {
                     let name = label.clone().unwrap_or_else(|| prof.display_name.clone());
                     let mut p = Pal::new(key.clone(), name, rule.state, self.offstage(), now, timeout);
-                    p.theme = self.deal_theme(p.seed);
+                    p.theme = self.deal_theme(&key, p.seed);
                     self.pals.push(p);
                     self.pals.len() - 1
                 }
@@ -291,7 +314,7 @@ impl Scene {
         let pi = self.find(parent);
         let x = pi.map_or(self.offstage(), |i| self.pals[i].x);
         let mut h = Pal::new(key, "helper".into(), state, x, now, timeout);
-        h.theme = self.deal_theme(h.seed);
+        h.theme = self.deal_theme(&h.key, h.seed);
         h.tracked = true;
         // Without a parent on stage, tick() would send a helper straight off again.
         h.helper_of = pi.map(|_| parent.to_string());
@@ -325,7 +348,7 @@ impl Scene {
         let hkey = format!("{parent}#{}", self.helper_seq);
         let (px, timeout) = (self.pals[pi].x, self.pals[pi].timeout);
         let mut h = Pal::new(hkey.clone(), "helper".into(), AgentState::Working, px, now, timeout);
-        h.theme = self.deal_theme(h.seed);
+        h.theme = self.deal_theme(&hkey, h.seed);
         h.helper_of = Some(parent.to_string());
         h.talk_until = Some(now + Duration::from_secs(2));
         h.talk_with = Some(parent.to_string());
@@ -385,6 +408,9 @@ impl Scene {
 
     pub fn tick(&mut self, dt: f32, now: Instant) {
         let spots: Vec<(String, f32)> = self.pals.iter().map(|p| (p.key.clone(), p.x)).collect();
+        let hosts: Vec<String> =
+            self.pals.iter().filter(|p| !p.leaving).filter_map(|p| p.helper_of.clone()).collect();
+        let hide_idle = self.hide_idle;
         for p in self.pals.iter_mut() {
             p.anim_t = (p.anim_t + dt) % 600.0;
             let d = p.target_x - p.x;
@@ -411,6 +437,13 @@ impl Scene {
             if !p.leaving && now - p.last_event > p.timeout {
                 p.leaving = true;
             }
+            // Only truly idle pals hide: a working pal can go minutes between events (a long
+            // build), and a parent stays while its subagents are still on stage.
+            if let Some(h) = hide_idle {
+                if !p.leaving && p.state == AgentState::Idle && now - p.state_since > h && !hosts.contains(&p.key) {
+                    p.leaving = true;
+                }
+            }
         }
         // Helpers whose parent is gone or leaving follow them out.
         let parents: Vec<String> =
@@ -423,6 +456,12 @@ impl Scene {
             }
         }
         let gone = self.offstage() - 0.5;
+        if self.remembered.len() > 256 {
+            self.remembered.clear();
+        }
+        for p in self.pals.iter().filter(|p| p.leaving && p.x >= gone) {
+            self.remembered.insert(p.key.clone(), p.theme);
+        }
         self.pals.retain(|p| !(p.leaving && p.x >= gone));
         self.layout(now);
     }
@@ -576,6 +615,76 @@ mod tests {
         ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStop", "agent_id": "a2" }));
         assert!(!pal(&s, "claude-code:s1#a1").leaving);
         assert!(pal(&s, "claude-code:s1#a2").leaving);
+    }
+
+    fn stop(s: &mut Scene, p: &Profiles) {
+        ev(s, p, json!({ "session_id": SID, "hook_event_name": "Stop" }));
+    }
+
+    /// Ticks far enough to walk anyone leaving off stage (tick doesn't cap dt).
+    fn walk_off(s: &mut Scene, at: Instant) {
+        s.tick(100.0, at);
+        s.tick(100.0, at);
+    }
+
+    #[test]
+    fn idle_pal_hides_and_comes_back_as_the_same_character() {
+        let (mut s, p) = scene();
+        s.set_theme_count(8);
+        s.set_hide_idle(120);
+        ev(&mut s, &p, tool(None, "Bash"));
+        // Not the theme a fresh deal would give, so a re-deal can't pass by luck.
+        let kept = (s.pals[0].theme + 1) % 8;
+        s.pals[0].theme = kept;
+        stop(&mut s, &p);
+        let t0 = Instant::now();
+        s.tick(0.1, t0 + Duration::from_secs(5)); // done -> idle
+        s.tick(0.1, t0 + Duration::from_secs(5 + 119));
+        assert!(!s.pals[0].leaving, "not yet");
+        s.tick(0.1, t0 + Duration::from_secs(5 + 121));
+        assert!(s.pals[0].leaving, "idle past the limit");
+        walk_off(&mut s, t0 + Duration::from_secs(130));
+        assert!(s.is_empty());
+        ev(&mut s, &p, tool(None, "Bash"));
+        assert_eq!(s.pals[0].theme, kept, "same character on return");
+    }
+
+    #[test]
+    fn working_pal_never_hides_for_being_quiet() {
+        let (mut s, p) = scene();
+        s.set_hide_idle(120);
+        ev(&mut s, &p, tool(None, "Bash")); // e.g. a ten-minute build: no events meanwhile
+        s.tick(0.1, Instant::now() + Duration::from_secs(600));
+        assert!(!s.pals[0].leaving);
+    }
+
+    #[test]
+    fn idle_parent_stays_while_its_subagents_work() {
+        let (mut s, p) = scene();
+        s.set_hide_idle(120);
+        ev(&mut s, &p, tool(None, "Agent"));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a1" }));
+        stop(&mut s, &p);
+        let t0 = Instant::now();
+        s.tick(0.1, t0 + Duration::from_secs(5));
+        s.tick(0.1, t0 + Duration::from_secs(300));
+        assert!(!pal(&s, "claude-code:s1").leaving, "background agents are still running");
+    }
+
+    #[test]
+    fn codex_hooks_drive_their_own_pals() {
+        // Codex hook payloads use Claude Code's field names; only the relay's --agent differs.
+        let (mut s, p) = scene();
+        let codex = |s: &mut Scene, payload: Value| {
+            s.apply(&Envelope { agent: "codex".into(), payload }, &p, Instant::now());
+        };
+        codex(&mut s, json!({ "session_id": "c1", "hook_event_name": "PreToolUse", "tool_name": "Bash" }));
+        codex(&mut s, json!({ "session_id": "c1", "hook_event_name": "SubagentStart", "agent_id": "x", "agent_type": "worker" }));
+        codex(&mut s, json!({ "session_id": "c1", "hook_event_name": "PermissionRequest", "tool_name": "Bash" }));
+        assert_eq!(pal(&s, "codex:c1").state, AgentState::Waiting);
+        assert_eq!(pal(&s, "codex:c1#x").helper_of.as_deref(), Some("codex:c1"));
+        codex(&mut s, json!({ "session_id": "c1", "hook_event_name": "SubagentStop", "agent_id": "x" }));
+        assert!(pal(&s, "codex:c1#x").leaving);
     }
 
     #[test]

@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart":      [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "PreToolUse":        [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "PostToolUse":       [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "SubagentStart":     [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "SubagentStop":      [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "Stop":              [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "PreCompact":        [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }],
+    "SessionEnd":        [{ "hooks": [{ "type": "command", "command": "C:/Users/YOU/AppData/Local/Programs/AgentPals/hook-relay.exe --agent codex" }] }]
+  }
+}

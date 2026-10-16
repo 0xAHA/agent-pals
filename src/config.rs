@@ -53,6 +53,9 @@ pub struct Config {
     pub visible: bool,
     /// "notify" (offer in the tray), "auto" (install when no agent is busy) or "off".
     pub updates: String,
+    /// Seconds a pal may sit idle before it walks off (it returns with its agent's next event).
+    /// 0 keeps it on stage.
+    pub hide_idle_secs: u64,
 }
 
 impl Default for Config {
@@ -66,6 +69,7 @@ impl Default for Config {
             margin_px: 8,
             visible: true,
             updates: "notify".into(),
+            hide_idle_secs: 120,
         }
     }
 }

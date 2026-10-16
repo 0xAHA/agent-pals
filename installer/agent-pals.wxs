@@ -3,8 +3,8 @@
 
   Installs to %LOCALAPPDATA%\Programs\AgentPals, adds a Start menu shortcut and a run-at-login
   entry (the tray's "Start with Windows" toggles the same Run value), points Claude Code's hooks
-  at the installed relay, and starts the app.
-  Uninstall removes the hooks again (other hooks in settings.json are left alone).
+  (and Codex's, if Codex is installed) at the installed relay, and starts the app.
+  Uninstall removes the hooks again (other hooks in those files are left alone).
 
   config.json is not shipped: the app writes it on first change, so upgrades keep settings.
   UpgradeCode must never change, or upgrades install side by side.
@@ -86,6 +86,11 @@
                   Execute="immediate" Return="ignore" Impersonate="yes" />
     <CustomAction Id="RemoveHooks" FileRef="RelayExe" ExeCommand="--uninstall-claude-hooks"
                   Execute="immediate" Return="ignore" Impersonate="yes" />
+    <!-- Codex: only touches ~/.codex/hooks.json when Codex is installed (~/.codex exists). -->
+    <CustomAction Id="InstallCodexHooks" FileRef="RelayExe" ExeCommand="--install-codex-hooks"
+                  Execute="immediate" Return="ignore" Impersonate="yes" />
+    <CustomAction Id="RemoveCodexHooks" FileRef="RelayExe" ExeCommand="--uninstall-codex-hooks"
+                  Execute="immediate" Return="ignore" Impersonate="yes" />
     <CustomAction Id="LaunchApp" FileRef="AppExe" ExeCommand="" Execute="immediate"
                   Return="asyncNoWait" Impersonate="yes" />
 
@@ -94,8 +99,11 @@
       <!-- Immediate actions before InstallFinalize run while the old files still exist. -->
       <Custom Action="RemoveHooks" Before="RemoveFiles"
               Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RemoveCodexHooks" After="RemoveHooks"
+              Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="InstallHooks" After="InstallFinalize" Condition="NOT REMOVE" />
-      <Custom Action="LaunchApp" After="InstallHooks" Condition="NOT REMOVE" />
+      <Custom Action="InstallCodexHooks" After="InstallHooks" Condition="NOT REMOVE" />
+      <Custom Action="LaunchApp" After="InstallCodexHooks" Condition="NOT REMOVE" />
     </InstallExecuteSequence>
   </Package>
 </Wix>

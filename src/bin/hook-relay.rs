@@ -1,12 +1,13 @@
 //! Tiny relay called by agent hooks. Forwards a slimmed payload to Agent Pals over a
 //! named pipe and always exits 0 quietly, so it can never block or break the agent.
 //!
-//!   hook-relay.exe --agent claude-code          (payload on stdin)
-//!   hook-relay.exe --agent codex --arg <json>   (payload as last argument)
+//!   hook-relay.exe --agent claude-code          (payload on stdin; Codex hooks too, --agent codex)
+//!   hook-relay.exe --agent <id> --arg <json>    (payload as last argument)
 //!   hook-relay.exe --install-claude-hooks | --uninstall-claude-hooks   (used by the installer)
+//!   hook-relay.exe --install-codex-hooks  | --uninstall-codex-hooks
 
-#[path = "../claude_hooks.rs"]
-mod claude_hooks;
+#[path = "../agent_hooks.rs"]
+mod agent_hooks;
 
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -18,11 +19,15 @@ const ERROR_PIPE_BUSY: i32 = 231;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--install-claude-hooks") {
-        std::process::exit(claude_hooks::run(true));
-    }
-    if args.iter().any(|a| a == "--uninstall-claude-hooks") {
-        std::process::exit(claude_hooks::run(false));
+    for (flag, target, install) in [
+        ("--install-claude-hooks", &agent_hooks::CLAUDE, true),
+        ("--uninstall-claude-hooks", &agent_hooks::CLAUDE, false),
+        ("--install-codex-hooks", &agent_hooks::CODEX, true),
+        ("--uninstall-codex-hooks", &agent_hooks::CODEX, false),
+    ] {
+        if args.iter().any(|a| a == flag) {
+            std::process::exit(agent_hooks::run(target, install));
+        }
     }
     let agent = args
         .iter()
@@ -79,9 +84,8 @@ const HOIST: &[&str] = &["to"];
 /// The only fields forwarded: what profiles key on (event, tool, session, subagent, recipient,
 /// label). An allow-list, because hooks also carry top-level text such as `prompt`,
 /// `last_assistant_message` and `message`, and a new field must not leak just by appearing.
-/// `type` and `thread-id` are Codex's event and session fields.
-const KEEP: &[&str] =
-    &["hook_event_name", "tool_name", "session_id", "agent_id", "agent_type", "cwd", "to", "type", "thread-id"];
+/// Claude Code and Codex hooks share these names.
+const KEEP: &[&str] = &["hook_event_name", "tool_name", "session_id", "agent_id", "agent_type", "cwd", "to"];
 
 /// Allow-listed top-level scalars only (strings capped). tool_input, tool_response, prompts,
 /// replies and file contents never leave the hook.
