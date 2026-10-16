@@ -27,6 +27,11 @@ pub struct Pal {
     leaving: bool,
     talk_until: Option<Instant>,
     talk_with: Option<String>,
+    /// Walks over to this pal while the chat lasts, then back to its slot.
+    visiting: Option<String>,
+    /// A helper for a known subagent (vs. a counted placeholder from SpawnHelper); it leaves on
+    /// its own SubagentStop rather than when the parent finishes a turn.
+    tracked: bool,
     // Per-pal liveliness, so a family on stage doesn't move in lockstep.
     /// Playback speed multiplier (0.85..1.15) and time offset into each anim.
     speed: f32,
@@ -61,6 +66,8 @@ impl Pal {
             leaving: false,
             talk_until: None,
             talk_with: None,
+            visiting: None,
+            tracked: false,
             speed: 0.85 + (m % 31) as f32 / 100.0,
             phase: ((m >> 8) % 1000) as f32 / 250.0,
             roll: mix(seed ^ 1),
@@ -168,7 +175,7 @@ impl Scene {
         self.frame_w = fw;
         let fit = (self.strip_w / (fw + GAP)).floor() as usize;
         self.max = self.max.min(fit).max(1);
-        self.layout();
+        self.layout(Instant::now());
     }
 
     pub fn is_empty(&self) -> bool {
@@ -190,8 +197,14 @@ impl Scene {
     pub fn apply(&mut self, env: &Envelope, profiles: &Profiles, now: Instant) {
         let Some(prof) = profiles.get(&env.agent) else { return };
         let Some(rule) = prof.match_rule(&env.payload) else { return };
-        let key = format!("{}:{}", prof.id, prof.session_of(&env.payload));
-        let label = prof.label_of(&env.payload);
+        let parent = format!("{}:{}", prof.id, prof.session_of(&env.payload));
+        let sub = prof.subagent_of(&env.payload);
+        let key = match &sub {
+            Some(a) => format!("{parent}#{a}"),
+            None => parent.clone(),
+        };
+        // Subagents share the parent's cwd, so they keep "helper" rather than its label.
+        let label = if sub.is_some() { None } else { prof.label_of(&env.payload) };
         let timeout = Duration::from_secs(prof.idle_timeout_secs);
 
         let idx = match self.find(&key) {
@@ -200,11 +213,15 @@ impl Scene {
                 if rule.action == Some(Action::Leave) || self.active() >= self.max {
                     return;
                 }
-                let name = label.clone().unwrap_or_else(|| prof.display_name.clone());
-                let mut p = Pal::new(key.clone(), name, rule.state, self.offstage(), now, timeout);
-                p.theme = self.deal_theme(p.seed);
-                self.pals.push(p);
-                self.pals.len() - 1
+                if sub.is_some() {
+                    self.add_tracked_helper(&parent, key.clone(), rule.state, now, timeout)
+                } else {
+                    let name = label.clone().unwrap_or_else(|| prof.display_name.clone());
+                    let mut p = Pal::new(key.clone(), name, rule.state, self.offstage(), now, timeout);
+                    p.theme = self.deal_theme(p.seed);
+                    self.pals.push(p);
+                    self.pals.len() - 1
+                }
             }
         };
 
@@ -230,12 +247,65 @@ impl Scene {
                 self.dismiss_helper(&key, now, true);
                 self.pals[idx].leaving = true;
             }
+            Some(Action::Talk) => {
+                let to = match prof.target_of(&env.payload).as_deref() {
+                    Some("main") | None => sub.as_ref().map(|_| parent.clone()),
+                    Some(t) => Some(format!("{parent}#{t}")),
+                };
+                if let Some(to) = to {
+                    self.talk(&key, &to, now);
+                }
+            }
             None => {}
         }
         if rule.state == AgentState::Done {
             self.dismiss_helper(&key, now, true);
         }
-        self.layout();
+        self.layout(now);
+    }
+
+    /// Helpers sit just after their parent (and its earlier helpers) in the strip.
+    fn insert_helper(&mut self, parent: &str, h: Pal) -> usize {
+        let Some(pi) = self.find(parent) else {
+            self.pals.push(h);
+            return self.pals.len() - 1;
+        };
+        let mut at = pi + 1;
+        while at < self.pals.len() && self.pals[at].helper_of.as_deref() == Some(parent) {
+            at += 1;
+        }
+        self.pals.insert(at, h);
+        at
+    }
+
+    /// A pal for one known subagent; it appears beside the parent and walks to its slot.
+    fn add_tracked_helper(&mut self, parent: &str, key: String, state: AgentState, now: Instant, timeout: Duration) -> usize {
+        let pi = self.find(parent);
+        let x = pi.map_or(self.offstage(), |i| self.pals[i].x);
+        let mut h = Pal::new(key, "helper".into(), state, x, now, timeout);
+        h.theme = self.deal_theme(h.seed);
+        h.tracked = true;
+        // Without a parent on stage, tick() would send a helper straight off again.
+        h.helper_of = pi.map(|_| parent.to_string());
+        self.insert_helper(parent, h)
+    }
+
+    /// `from` walks over to `to` and they chat; the walk counts towards the chat, so a far
+    /// visitor still gets ~2.5 s of talking on arrival.
+    fn talk(&mut self, from: &str, to: &str, now: Instant) {
+        let (Some(fi), Some(ti)) = (self.find(from), self.find(to)) else { return };
+        if fi == ti || self.pals[fi].leaving || self.pals[ti].leaving {
+            return;
+        }
+        let walk = ((self.pals[fi].x - self.pals[ti].x).abs() - self.frame_w).max(0.0) / WALK_SPEED;
+        let until = now + Duration::from_secs_f32(walk + 2.5);
+        let f = &mut self.pals[fi];
+        f.talk_until = Some(until);
+        f.talk_with = Some(to.to_string());
+        f.visiting = Some(to.to_string());
+        let t = &mut self.pals[ti];
+        t.talk_until = Some(until);
+        t.talk_with = Some(from.to_string());
     }
 
     fn spawn_helper(&mut self, parent: &str, now: Instant) {
@@ -254,17 +324,14 @@ impl Scene {
         let p = &mut self.pals[pi];
         p.talk_until = Some(now + Duration::from_secs(2));
         p.talk_with = Some(hkey);
-        let mut at = pi + 1;
-        while at < self.pals.len() && self.pals[at].helper_of.as_deref() == Some(parent) {
-            at += 1;
-        }
-        self.pals.insert(at, h);
+        self.insert_helper(parent, h);
     }
 
+    /// Placeholder helpers only; tracked ones come and go with their own subagent events.
     fn dismiss_helper(&mut self, parent: &str, now: Instant, all: bool) {
         let mut dismissed = false;
         for h in self.pals.iter_mut() {
-            if h.helper_of.as_deref() == Some(parent) && !h.leaving {
+            if h.helper_of.as_deref() == Some(parent) && !h.leaving && !h.tracked {
                 h.leaving = true;
                 dismissed = true;
                 if !all {
@@ -281,16 +348,29 @@ impl Scene {
     }
 
     /// Slots fill from the right (tray side) leftwards; leavers walk off right.
-    fn layout(&mut self) {
+    /// A pal visiting someone stands beside them, on the near side, until the chat ends.
+    fn layout(&mut self, now: Instant) {
         let step = self.frame_w + GAP;
         let off = self.offstage();
         let mut slot = 0.0;
         for p in self.pals.iter_mut() {
             if p.leaving {
                 p.target_x = off;
+                p.visiting = None;
             } else {
                 slot += 1.0;
                 p.target_x = self.strip_w - slot * step;
+            }
+        }
+        let slots: Vec<(String, f32)> = self.pals.iter().map(|p| (p.key.clone(), p.target_x)).collect();
+        let beside = self.frame_w * 0.75;
+        for p in self.pals.iter_mut().filter(|p| !p.leaving) {
+            if !p.talking(now) {
+                p.visiting = None;
+            }
+            let Some(host) = &p.visiting else { continue };
+            if let Some((_, hx)) = slots.iter().find(|(k, _)| k == host) {
+                p.target_x = if p.target_x < *hx { hx - beside } else { hx + beside };
             }
         }
     }
@@ -336,7 +416,7 @@ impl Scene {
         }
         let gone = self.offstage() - 0.5;
         self.pals.retain(|p| !(p.leaving && p.x >= gone));
-        self.layout();
+        self.layout(now);
     }
 
     /// True while anything on stage needs frames. Otherwise the timer drops to slow housekeeping.
@@ -405,5 +485,97 @@ impl Scene {
             s.push_str(&waiting.join(", "));
         }
         s.chars().take(120).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    const SID: &str = "s1";
+
+    fn scene() -> (Scene, Profiles) {
+        let profiles = crate::profile::load_all(std::path::Path::new("profiles"));
+        assert!(profiles.contains_key("claude-code"), "run from the crate root");
+        (Scene::new(160.0, 16.0, 8), profiles)
+    }
+
+    /// Payloads shaped like captured Claude Code hooks, after the relay has slimmed them.
+    fn ev(s: &mut Scene, p: &Profiles, payload: Value) {
+        let env = Envelope { agent: "claude-code".into(), payload };
+        s.apply(&env, p, Instant::now());
+    }
+
+    fn tool(agent: Option<&str>, name: &str) -> Value {
+        let mut v = json!({ "session_id": SID, "hook_event_name": "PreToolUse", "tool_name": name });
+        if let Some(a) = agent {
+            v["agent_id"] = json!(a);
+        }
+        v
+    }
+
+    fn pal<'a>(s: &'a Scene, key: &str) -> &'a Pal {
+        s.pals.iter().find(|p| p.key == key).unwrap_or_else(|| panic!("no pal {key}"))
+    }
+
+    #[test]
+    fn each_subagent_gets_its_own_helper() {
+        let (mut s, p) = scene();
+        ev(&mut s, &p, tool(None, "Agent"));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a1" }));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a2" }));
+        ev(&mut s, &p, tool(Some("a1"), "Bash"));
+        assert_eq!(s.pals.len(), 3, "parent + one helper per subagent, no placeholders");
+        assert_eq!(pal(&s, "claude-code:s1#a1").helper_of.as_deref(), Some("claude-code:s1"));
+        assert_eq!(pal(&s, "claude-code:s1#a1").state, AgentState::Working);
+        // The subagent's tool call animates its helper, not the parent.
+        assert_eq!(pal(&s, "claude-code:s1#a2").state, AgentState::Working);
+    }
+
+    #[test]
+    fn send_message_walks_sender_to_recipient() {
+        let (mut s, p) = scene();
+        ev(&mut s, &p, tool(None, "Agent"));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a1" }));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a2" }));
+        let mut msg = tool(Some("a1"), "SendMessage");
+        msg["to"] = json!("a2");
+        ev(&mut s, &p, msg);
+        let (a1, a2) = (pal(&s, "claude-code:s1#a1"), pal(&s, "claude-code:s1#a2"));
+        assert_eq!(a1.visiting.as_deref(), Some("claude-code:s1#a2"));
+        assert_eq!(a2.talk_with.as_deref(), Some("claude-code:s1#a1"));
+        assert!((a1.target_x - a2.target_x).abs() < 16.0, "sender stands beside the recipient");
+    }
+
+    #[test]
+    fn message_to_main_visits_the_parent() {
+        let (mut s, p) = scene();
+        ev(&mut s, &p, tool(None, "Agent"));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a1" }));
+        let mut msg = tool(Some("a1"), "SendMessage");
+        msg["to"] = json!("main");
+        ev(&mut s, &p, msg);
+        assert_eq!(pal(&s, "claude-code:s1#a1").visiting.as_deref(), Some("claude-code:s1"));
+    }
+
+    #[test]
+    fn subagent_stop_removes_that_helper_only() {
+        let (mut s, p) = scene();
+        ev(&mut s, &p, tool(None, "Agent"));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a1" }));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a2" }));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStop", "agent_id": "a2" }));
+        assert!(!pal(&s, "claude-code:s1#a1").leaving);
+        assert!(pal(&s, "claude-code:s1#a2").leaving);
+    }
+
+    #[test]
+    fn parent_finishing_a_turn_keeps_running_helpers() {
+        let (mut s, p) = scene();
+        ev(&mut s, &p, tool(None, "Agent"));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "SubagentStart", "agent_id": "a1" }));
+        ev(&mut s, &p, json!({ "session_id": SID, "hook_event_name": "Stop" }));
+        assert!(!pal(&s, "claude-code:s1#a1").leaving, "background agents outlive the parent's turn");
     }
 }

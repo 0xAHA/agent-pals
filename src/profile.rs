@@ -21,6 +21,8 @@ pub enum Action {
     SpawnHelper,
     DismissHelper,
     Leave,
+    /// Walk over to `target_field`'s pal and chat; with no target, a subagent's parent.
+    Talk,
 }
 
 #[derive(Deserialize, Clone)]
@@ -42,6 +44,13 @@ pub struct Profile {
     pub event_field: String,
     #[serde(default)]
     pub session_field: Option<String>,
+    /// Set on events from a subagent, which share the parent's session. Each value gets its
+    /// own helper pal, so its activity animates that pal instead of the parent.
+    #[serde(default)]
+    pub subagent_field: Option<String>,
+    /// Who a message is addressed to: a subagent value, or "main" for the parent.
+    #[serde(default)]
+    pub target_field: Option<String>,
     #[serde(default)]
     pub label_field: Option<String>,
     #[serde(default = "default_timeout")]
@@ -80,6 +89,14 @@ impl Profile {
             .as_deref()
             .and_then(|f| field_str(v, f))
             .unwrap_or_else(|| "default".into())
+    }
+
+    pub fn subagent_of(&self, v: &Value) -> Option<String> {
+        field_str(v, self.subagent_field.as_deref()?)
+    }
+
+    pub fn target_of(&self, v: &Value) -> Option<String> {
+        field_str(v, self.target_field.as_deref()?)
     }
 
     /// Short label, e.g. the last folder of `cwd`.

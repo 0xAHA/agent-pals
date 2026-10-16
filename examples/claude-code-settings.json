@@ -5,7 +5,8 @@
     "PreToolUse":       [{ "matcher": "*", "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }],
     "PostToolUse":      [{ "matcher": "*", "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }],
     "Notification":     [{ "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }],
-    "SubagentStop":     [{ "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }],
+    "SubagentStart":    [{ "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }],
+    "SubagentStop":    [{ "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }],
     "Stop":             [{ "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }],
     "PreCompact":       [{ "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }],
     "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "C:/Tools/agent-pals/hook-relay.exe --agent claude-code" }] }]
