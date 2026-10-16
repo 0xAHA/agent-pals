@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod autostart;
 mod config;
 mod ipc;
 mod overlay;
@@ -132,6 +133,12 @@ fn main() {
                 TrayCmd::Show(v) => {
                     cfg.visible = v;
                     cfg.save(dir);
+                }
+                TrayCmd::Autostart(on) => {
+                    if let Err(e) = autostart::set(on) {
+                        log(format!("start with Windows: {e}"));
+                    }
+                    tray.set_autostart(autostart::enabled());
                 }
                 TrayCmd::Scale(s) => {
                     cfg.scale = s;

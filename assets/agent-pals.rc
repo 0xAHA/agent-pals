@@ -1,0 +1,3 @@
+// Embedded in both exes by build.rs. Explorer, the taskbar and Start show the first icon.
+// Regenerate the .ico with tools/gen_icon.py.
+1 ICON "agent-pals.ico"

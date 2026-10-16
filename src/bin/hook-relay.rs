@@ -3,6 +3,10 @@
 //!
 //!   hook-relay.exe --agent claude-code          (payload on stdin)
 //!   hook-relay.exe --agent codex --arg <json>   (payload as last argument)
+//!   hook-relay.exe --install-claude-hooks | --uninstall-claude-hooks   (used by the installer)
+
+#[path = "../claude_hooks.rs"]
+mod claude_hooks;
 
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -14,6 +18,12 @@ const ERROR_PIPE_BUSY: i32 = 231;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--install-claude-hooks") {
+        std::process::exit(claude_hooks::run(true));
+    }
+    if args.iter().any(|a| a == "--uninstall-claude-hooks") {
+        std::process::exit(claude_hooks::run(false));
+    }
     let agent = args
         .iter()
         .position(|a| a == "--agent")

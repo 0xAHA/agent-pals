@@ -4,6 +4,7 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 pub enum TrayCmd {
     Show(bool),
+    Autostart(bool),
     Scale(u32),
     Theme(String),
     Reload,
@@ -16,6 +17,7 @@ const SCALES: [u32; 4] = [2, 3, 4, 5];
 pub struct Tray {
     icon: TrayIcon,
     show: CheckMenuItem,
+    autostart: CheckMenuItem,
     scales: Vec<(u32, CheckMenuItem)>,
     themes: Vec<(String, CheckMenuItem)>,
     reload: MenuItem,
@@ -51,6 +53,7 @@ impl Tray {
             theme_menu.append(item).map_err(e2s)?;
         }
 
+        let autostart = CheckMenuItem::new("Start with Windows", true, crate::autostart::enabled(), None);
         let reload = MenuItem::new("Reload profiles and themes", true, None);
         let open_dir = MenuItem::new("Open config folder", true, None);
         let quit = MenuItem::new("Quit", true, None);
@@ -59,6 +62,7 @@ impl Tray {
             &scale_menu,
             &theme_menu,
             &PredefinedMenuItem::separator(),
+            &autostart,
             &reload,
             &open_dir,
             &PredefinedMenuItem::separator(),
@@ -73,7 +77,7 @@ impl Tray {
             .build()
             .map_err(e2s)?;
 
-        Ok(Tray { icon, show, scales, themes, reload, open_dir, quit, last_tip: String::new() })
+        Ok(Tray { icon, show, autostart, scales, themes, reload, open_dir, quit, last_tip: String::new() })
     }
 
     /// Non-blocking; call after each dispatched message.
@@ -82,6 +86,9 @@ impl Tray {
         let id = &ev.id;
         if id == self.show.id() {
             return Some(TrayCmd::Show(self.show.is_checked()));
+        }
+        if id == self.autostart.id() {
+            return Some(TrayCmd::Autostart(self.autostart.is_checked()));
         }
         if id == self.reload.id() {
             return Some(TrayCmd::Reload);
@@ -107,6 +114,11 @@ impl Tray {
             return Some(TrayCmd::Theme(n));
         }
         None
+    }
+
+    /// Re-sync the tick with the registry, e.g. after a failed write.
+    pub fn set_autostart(&self, on: bool) {
+        self.autostart.set_checked(on);
     }
 
     pub fn set_tooltip(&mut self, tip: &str) {

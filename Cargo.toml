@@ -1,6 +1,6 @@
 [package]
 name = "agent-pals"
-version = "0.1.0"
+version = "0.2.2"
 edition = "2021"
 
 [[bin]]
@@ -13,9 +13,13 @@ path = "src/bin/hook-relay.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order: the relay rewrites the user's Claude Code settings.json and must keep its key order
+serde_json = { version = "1", features = ["preserve_order"] }
 png = "0.17"
 tray-icon = "0.19"
+
+[build-dependencies]
+embed-resource = "3"
 
 [dependencies.windows]
 version = "0.58"
@@ -27,6 +31,7 @@ features = [
   "Win32_System_IO",
   "Win32_System_LibraryLoader",
   "Win32_System_Pipes",
+  "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_UI_HiDpi",
   "Win32_UI_WindowsAndMessaging",
