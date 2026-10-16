@@ -1,6 +1,6 @@
 {
-  "theme": "office",
-  "scale": 3,
+  "theme": "random",
+  "scale": 2,
   "fps": 10,
   "max_agents": 8,
   "strip_width": 160,

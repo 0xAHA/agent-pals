@@ -27,9 +27,14 @@ impl Canvas {
     /// Plot one logical pixel (a scale x scale block).
     pub fn dot(&mut self, lx: i32, ly: i32, rgb: [u8; 3], a: u8) {
         let s = self.scale as i32;
-        let (x0, y0) = (lx * s, ly * s);
+        self.fill(lx * s, ly * s, lx * s + s, ly * s + s, rgb, a);
+    }
+
+    /// Fill physical pixels [x0, x1) x [y0, y1), clipped to the canvas.
+    pub fn fill(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, rgb: [u8; 3], a: u8) {
         let (w, h) = (self.w as i32, self.h as i32);
-        if lx < 0 || ly < 0 || x0 >= w || y0 >= h {
+        let (x0, y0, x1, y1) = (x0.max(0), y0.max(0), x1.min(w), y1.min(h));
+        if x0 >= x1 || y0 >= y1 {
             return;
         }
         let pa = a as u32;
@@ -39,9 +44,9 @@ impl Canvas {
             (rgb[0] as u32 * pa / 255) as u8,
             a,
         ];
-        for y in y0..(y0 + s).min(h) {
+        for y in y0..y1 {
             let row = (y * w) as usize;
-            for x in x0..(x0 + s).min(w) {
+            for x in x0..x1 {
                 let i = (row + x as usize) * 4;
                 self.px[i..i + 4].copy_from_slice(&px);
             }

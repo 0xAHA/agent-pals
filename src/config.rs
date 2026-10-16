@@ -56,8 +56,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            theme: "office".into(),
-            scale: 3,
+            theme: crate::sprites::RANDOM.into(),
+            scale: 2,
             fps: 10,
             max_agents: 8,
             strip_width: 160,

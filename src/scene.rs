@@ -1,7 +1,7 @@
 use crate::ipc::Envelope;
 use crate::profile::{Action, AgentState, Profiles};
 use crate::render::{draw_bubble, Bubble, Canvas, BUBBLE_H};
-use crate::sprites::{seed_of, Theme};
+use crate::sprites::{mix, seed_of, Theme};
 use std::time::{Duration, Instant};
 
 const WALK_SPEED: f32 = 20.0; // logical px / sec
@@ -21,16 +21,32 @@ pub struct Pal {
     facing_left: bool,
     anim_t: f32,
     seed: u64,
+    /// Index into the themes in play, dealt once at arrival (see `Scene::deal_theme`).
+    theme: usize,
     helper_of: Option<String>,
     leaving: bool,
     talk_until: Option<Instant>,
     talk_with: Option<String>,
+    // Per-pal liveliness, so a family on stage doesn't move in lockstep.
+    /// Playback speed multiplier (0.85..1.15) and time offset into each anim.
+    speed: f32,
+    phase: f32,
+    /// Picks the anim variant; rerolled on state change and every few seconds.
+    roll: u64,
+    rolls: u64,
+    next_roll: Instant,
+    /// Which way to face when standing about; flips now and then.
+    face_left: bool,
+    next_turn: Instant,
 }
 
 impl Pal {
     fn new(key: String, label: String, state: AgentState, x: f32, now: Instant, timeout: Duration) -> Self {
+        let seed = seed_of(&key);
+        let m = mix(seed);
         Pal {
-            seed: seed_of(&key),
+            seed,
+            theme: 0,
             key,
             label,
             state,
@@ -45,7 +61,25 @@ impl Pal {
             leaving: false,
             talk_until: None,
             talk_with: None,
+            speed: 0.85 + (m % 31) as f32 / 100.0,
+            phase: ((m >> 8) % 1000) as f32 / 250.0,
+            roll: mix(seed ^ 1),
+            rolls: 1,
+            next_roll: now + Duration::from_secs(5 + (m >> 20) % 6),
+            face_left: (m >> 32) & 1 == 0,
+            next_turn: now + Duration::from_secs(3 + (m >> 40) % 6),
         }
+    }
+
+    /// New variant pick, and when to pick again (5-10 s).
+    fn reroll(&mut self, now: Instant) {
+        self.rolls += 1;
+        self.roll = mix(self.seed ^ self.rolls.wrapping_mul(0x9E3779B97F4A7C15));
+        self.next_roll = now + Duration::from_secs(5 + self.roll % 6);
+    }
+
+    fn asleep(&self, now: Instant) -> bool {
+        self.state == AgentState::Idle && now - self.state_since > ZZZ_AFTER
     }
 
     fn moving(&self) -> bool {
@@ -61,6 +95,7 @@ impl Pal {
             self.state = s;
             self.state_since = now;
             self.anim_t = 0.0;
+            self.reroll(now);
         }
     }
 
@@ -89,7 +124,7 @@ impl Pal {
             AgentState::Waiting => Some(Bubble::Bang),
             AgentState::Thinking => Some(Bubble::Dots(1 + ((self.anim_t * 3.0) as u8 % 3))),
             AgentState::Done => Some(Bubble::Check),
-            AgentState::Idle if now - self.state_since > ZZZ_AFTER => Some(Bubble::Zzz),
+            AgentState::Idle if self.asleep(now) => Some(Bubble::Zzz),
             _ => None,
         }
     }
@@ -101,13 +136,32 @@ pub struct Scene {
     frame_w: f32,
     max: usize,
     helper_seq: u64,
+    n_themes: usize,
 }
 
 impl Scene {
     pub fn new(strip_w: f32, frame_w: f32, max: usize) -> Self {
-        let mut s = Scene { pals: Vec::new(), strip_w, frame_w, max, helper_seq: 0 };
+        let mut s = Scene { pals: Vec::new(), strip_w, frame_w, max, helper_seq: 0, n_themes: 1 };
         s.set_frame_w(frame_w);
         s
+    }
+
+    /// How many themes are in play. Pals already on stage keep their slot (wrapped if it shrank).
+    pub fn set_theme_count(&mut self, n: usize) {
+        self.n_themes = n.max(1);
+    }
+
+    /// The least-used theme among pals on stage, ties broken by the seed. Families don't
+    /// repeat until every one is showing, and a pal keeps its family for life.
+    fn deal_theme(&self, seed: u64) -> usize {
+        let n = self.n_themes;
+        let mut counts = vec![0usize; n];
+        for p in self.pals.iter().filter(|p| !p.leaving) {
+            counts[p.theme % n] += 1;
+        }
+        let least = counts.iter().copied().min().unwrap_or(0);
+        let free: Vec<usize> = (0..n).filter(|&i| counts[i] == least).collect();
+        free[(mix(seed ^ 0x7f4a7c159e3779b9) % free.len() as u64) as usize]
     }
 
     pub fn set_frame_w(&mut self, fw: f32) {
@@ -147,7 +201,9 @@ impl Scene {
                     return;
                 }
                 let name = label.clone().unwrap_or_else(|| prof.display_name.clone());
-                self.pals.push(Pal::new(key.clone(), name, rule.state, self.offstage(), now, timeout));
+                let mut p = Pal::new(key.clone(), name, rule.state, self.offstage(), now, timeout);
+                p.theme = self.deal_theme(p.seed);
+                self.pals.push(p);
                 self.pals.len() - 1
             }
         };
@@ -191,6 +247,7 @@ impl Scene {
         let hkey = format!("{parent}#{}", self.helper_seq);
         let (px, timeout) = (self.pals[pi].x, self.pals[pi].timeout);
         let mut h = Pal::new(hkey.clone(), "helper".into(), AgentState::Working, px, now, timeout);
+        h.theme = self.deal_theme(h.seed);
         h.helper_of = Some(parent.to_string());
         h.talk_until = Some(now + Duration::from_secs(2));
         h.talk_with = Some(parent.to_string());
@@ -248,10 +305,17 @@ impl Scene {
                 p.facing_left = d < 0.0;
             } else {
                 p.x = p.target_x;
+                if !p.asleep(now) && now >= p.next_turn {
+                    p.face_left = !p.face_left;
+                    p.next_turn = now + Duration::from_secs(2 + mix(p.roll ^ p.rolls) % 7);
+                }
                 p.facing_left = match (&p.talk_with, p.talking(now)) {
                     (Some(w), true) => spots.iter().find(|(k, _)| k == w).map_or(true, |(_, wx)| *wx < p.x),
-                    _ => true,
+                    _ => p.face_left,
                 };
+            }
+            if now >= p.next_roll {
+                p.reroll(now);
             }
             if p.state == AgentState::Done && now - p.state_since > DONE_FOR {
                 p.set_state(AgentState::Idle, now);
@@ -285,17 +349,21 @@ impl Scene {
         })
     }
 
-    pub fn render(&self, c: &mut Canvas, theme: &Theme, now: Instant) {
+    /// `themes` is never empty; with several (random mode) each pal keeps one for life.
+    pub fn render(&self, c: &mut Canvas, themes: &[Theme], now: Instant) {
         c.clear();
-        let y = BUBBLE_H as i32;
-        let fw = theme.frame_w as i32;
-        let fh = theme.frame_h as i32;
+        let floor = BUBBLE_H as i32 + themes.iter().map(|t| t.frame_h).max().unwrap_or(0) as i32;
         for p in &self.pals {
+            let theme = &themes[p.theme % themes.len()];
+            let fw = theme.frame_w as i32;
+            let fh = theme.frame_h as i32;
+            let y = floor - fh;
             let x = p.x.round() as i32;
             for dx in 4..fw - 4 {
                 c.dot(x + dx, y + fh - 1, [0, 0, 0], 70);
             }
-            theme.draw(c, p.anim_name(now), p.anim_t, p.seed, x, y, p.facing_left);
+            let t = p.anim_t * p.speed + p.phase;
+            theme.draw(c, p.anim_name(now), p.roll, t, p.seed, x, y, p.facing_left);
             if let Some(b) = p.bubble(now) {
                 let bounce = if b == Bubble::Bang && (p.anim_t * 4.0) as u32 % 2 == 0 { 1 } else { 0 };
                 draw_bubble(c, x + 8, y - 10 - bounce + 1, b);

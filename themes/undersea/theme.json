@@ -1,0 +1,77 @@
+{
+  "name": "undersea",
+  "frame_w": 32,
+  "frame_h": 40,
+  "density": 2,
+  "sheet": "sheet.png",
+  "anims": {
+    "idle": {
+      "row": 0,
+      "frames": 4,
+      "fps": 3
+    },
+    "walk": {
+      "row": 1,
+      "frames": 4,
+      "fps": 8
+    },
+    "think": {
+      "row": 2,
+      "frames": 4,
+      "fps": 3
+    },
+    "work": {
+      "row": 3,
+      "frames": 4,
+      "fps": 6
+    },
+    "wait": {
+      "row": 4,
+      "frames": 4,
+      "fps": 5
+    },
+    "talk": {
+      "row": 5,
+      "frames": 4,
+      "fps": 5
+    },
+    "done": {
+      "row": 6,
+      "frames": 4,
+      "fps": 6
+    },
+    "idle_2": {
+      "row": 7,
+      "frames": 4,
+      "fps": 3
+    },
+    "idle_3": {
+      "row": 8,
+      "frames": 4,
+      "fps": 3
+    },
+    "work_2": {
+      "row": 9,
+      "frames": 4,
+      "fps": 6
+    },
+    "work_3": {
+      "row": 10,
+      "frames": 4,
+      "fps": 6
+    }
+  },
+  "swaps": [
+    {
+      "key": "#e66ea0",
+      "choices": [
+        "#e66ea0",
+        "#965adc",
+        "#f08c3c",
+        "#3cb4b4",
+        "#dc4646",
+        "#6ec85a"
+      ]
+    }
+  ]
+}

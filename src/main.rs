@@ -45,9 +45,14 @@ fn single_instance() -> bool {
     }
 }
 
-/// Resize canvas + window to suit the current theme/scale.
-fn fit(canvas: &mut Canvas, overlay: &mut Overlay, cfg: &Config, theme: &Theme) {
-    canvas.resize(cfg.strip_width, theme.frame_h + BUBBLE_H, cfg.scale);
+/// Largest logical frame across the themes in play; the strip is laid out for that.
+fn frame_size(themes: &[Theme]) -> (u32, u32) {
+    themes.iter().fold((1, 1), |(w, h), t| (w.max(t.frame_w), h.max(t.frame_h)))
+}
+
+/// Resize canvas + window to suit the current themes/scale.
+fn fit(canvas: &mut Canvas, overlay: &mut Overlay, cfg: &Config, themes: &[Theme]) {
+    canvas.resize(cfg.strip_width, frame_size(themes).1 + BUBBLE_H, cfg.scale);
     if let Err(e) = overlay.resize(canvas.w as i32, canvas.h as i32, cfg.margin_px) {
         log(format!("overlay resize failed: {e}"));
     }
@@ -65,9 +70,11 @@ fn main() {
     let dir = config::base_dir();
     let mut cfg = Config::load(dir);
     let mut profiles = profile::load_all(&dir.join("profiles"));
-    let mut theme = sprites::load_theme(dir, &cfg.theme);
-    let mut scene = Scene::new(cfg.strip_width as f32, theme.frame_w as f32, cfg.max_agents);
-    let mut canvas = Canvas::new(cfg.strip_width, theme.frame_h + BUBBLE_H, cfg.scale);
+    let mut themes = sprites::load_set(dir, &cfg.theme);
+    let (fw, fh) = frame_size(&themes);
+    let mut scene = Scene::new(cfg.strip_width as f32, fw as f32, cfg.max_agents);
+    scene.set_theme_count(themes.len());
+    let mut canvas = Canvas::new(cfg.strip_width, fh + BUBBLE_H, cfg.scale);
 
     let mut overlay = match Overlay::create(canvas.w as i32, canvas.h as i32, cfg.margin_px) {
         Ok(o) => o,
@@ -76,8 +83,9 @@ fn main() {
             return;
         }
     };
-    let theme_names = sprites::list_themes(&dir.join("themes"));
-    let mut tray = match Tray::new(&cfg, &theme_names, theme.icon_rgba(ICON_PX), ICON_PX) {
+    let mut theme_names = vec![sprites::RANDOM.to_string()];
+    theme_names.extend(sprites::list_themes(&dir.join("themes")));
+    let mut tray = match Tray::new(&cfg, &theme_names, themes[0].icon_rgba(ICON_PX), ICON_PX) {
         Ok(t) => t,
         Err(e) => {
             log(format!("tray create failed: {e}"));
@@ -87,7 +95,8 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
     ipc::spawn_server(tx, overlay.hwnd_raw());
-    log(format!("started: {} profiles, theme '{}'", profiles.len(), theme.name));
+    let loaded: Vec<&str> = themes.iter().map(|t| t.name.as_str()).collect();
+    log(format!("started: {} profiles, theme '{}' ({})", profiles.len(), cfg.theme, loaded.join(", ")));
 
     let mut tick = Tick::Off;
     let mut last = Instant::now();
@@ -127,23 +136,25 @@ fn main() {
                 TrayCmd::Scale(s) => {
                     cfg.scale = s;
                     cfg.save(dir);
-                    fit(&mut canvas, &mut overlay, &cfg, &theme);
+                    fit(&mut canvas, &mut overlay, &cfg, &themes);
                 }
                 TrayCmd::Theme(name) => {
-                    theme = sprites::load_theme(dir, &name);
+                    themes = sprites::load_set(dir, &name);
                     cfg.theme = name;
                     cfg.save(dir);
-                    scene.set_frame_w(theme.frame_w as f32);
-                    fit(&mut canvas, &mut overlay, &cfg, &theme);
-                    tray.set_icon(theme.icon_rgba(ICON_PX), ICON_PX);
+                    scene.set_theme_count(themes.len());
+                    scene.set_frame_w(frame_size(&themes).0 as f32);
+                    fit(&mut canvas, &mut overlay, &cfg, &themes);
+                    tray.set_icon(themes[0].icon_rgba(ICON_PX), ICON_PX);
                 }
                 TrayCmd::Reload => {
                     profiles = profile::load_all(&dir.join("profiles"));
-                    theme = sprites::load_theme(dir, &cfg.theme);
-                    scene.set_frame_w(theme.frame_w as f32);
-                    fit(&mut canvas, &mut overlay, &cfg, &theme);
-                    tray.set_icon(theme.icon_rgba(ICON_PX), ICON_PX);
-                    log(format!("reloaded: {} profiles", profiles.len()));
+                    themes = sprites::load_set(dir, &cfg.theme);
+                    scene.set_theme_count(themes.len());
+                    scene.set_frame_w(frame_size(&themes).0 as f32);
+                    fit(&mut canvas, &mut overlay, &cfg, &themes);
+                    tray.set_icon(themes[0].icon_rgba(ICON_PX), ICON_PX);
+                    log(format!("reloaded: {} profiles, {} themes", profiles.len(), themes.len()));
                 }
                 TrayCmd::OpenDir => {
                     let _ = std::process::Command::new("explorer").arg(dir).spawn();
@@ -161,7 +172,7 @@ fn main() {
         scene.tick(dt, now);
 
         if cfg.visible && !scene.is_empty() {
-            scene.render(&mut canvas, &theme, now);
+            scene.render(&mut canvas, &themes, now);
             overlay.present(&canvas.px);
         } else {
             overlay.hide();

@@ -25,6 +25,9 @@ struct ThemeFile {
     name: String,
     frame_w: u32,
     frame_h: u32,
+    /// Sheet pixels per logical pixel. 2 = a 32x40 sheet frame fills a 16x20 slot at double detail.
+    #[serde(default = "default_density")]
+    density: u32,
     #[serde(default = "default_sheet")]
     sheet: String,
     anims: HashMap<String, AnimDef>,
@@ -36,11 +39,18 @@ fn default_sheet() -> String {
     "sheet.png".into()
 }
 
+fn default_density() -> u32 {
+    1
+}
+
 pub struct Theme {
     pub name: String,
+    /// Logical size (sheet frame size / density); what layout and the canvas work in.
     pub frame_w: u32,
     pub frame_h: u32,
-    anims: HashMap<String, AnimDef>,
+    density: u32,
+    /// Base name -> variants. "work", "work_2", "work_3" in theme.json all land under "work".
+    anims: HashMap<String, Vec<AnimDef>>,
     swaps: Vec<([u8; 3], Vec<[u8; 3]>)>,
     sheet: Vec<u8>, // RGBA, straight alpha
     sheet_w: u32,
@@ -55,7 +65,7 @@ fn hex(s: &str) -> Option<[u8; 3]> {
     Some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
 }
 
-fn mix(mut z: u64) -> u64 {
+pub fn mix(mut z: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
     z ^ (z >> 31)
@@ -100,25 +110,42 @@ impl Theme {
         if !tf.anims.contains_key("idle") {
             return Err("theme needs at least an 'idle' anim".into());
         }
+        let d = tf.density.max(1);
+        if tf.frame_w % d != 0 || tf.frame_h % d != 0 {
+            return Err(format!("frame {}x{} is not divisible by density {d}", tf.frame_w, tf.frame_h));
+        }
         let (sheet, sheet_w, _) = decode_png(png)?;
         let swaps = tf
             .swaps
             .iter()
             .filter_map(|s| Some((hex(&s.key)?, s.choices.iter().filter_map(|c| hex(c)).collect())))
             .collect();
+        let mut keys: Vec<&String> = tf.anims.keys().collect();
+        keys.sort();
+        let mut anims: HashMap<String, Vec<AnimDef>> = HashMap::new();
+        for k in keys {
+            let base = match k.rsplit_once('_') {
+                Some((b, n)) if n.parse::<u32>().is_ok() => b,
+                _ => k.as_str(),
+            };
+            anims.entry(base.to_string()).or_default().push(tf.anims[k].clone());
+        }
         Ok(Theme {
             name: tf.name,
-            frame_w: tf.frame_w,
-            frame_h: tf.frame_h,
-            anims: tf.anims,
+            frame_w: tf.frame_w / d,
+            frame_h: tf.frame_h / d,
+            density: d,
+            anims,
             swaps,
             sheet,
             sheet_w,
         })
     }
 
-    fn anim(&self, name: &str) -> &AnimDef {
-        self.anims.get(name).unwrap_or_else(|| &self.anims["idle"])
+    /// `roll` picks among the variants; the same roll keeps the same variant.
+    fn anim(&self, name: &str, roll: u64) -> &AnimDef {
+        let v = self.anims.get(name).unwrap_or_else(|| &self.anims["idle"]);
+        &v[(roll % v.len() as u64) as usize]
     }
 
     fn swap(&self, rgb: [u8; 3], seed: u64) -> [u8; 3] {
@@ -131,13 +158,19 @@ impl Theme {
         rgb
     }
 
-    /// Sheet frames face right; `flip` mirrors them.
-    pub fn draw(&self, c: &mut Canvas, anim: &str, t: f32, seed: u64, x: i32, y: i32, flip: bool) {
-        let a = self.anim(anim);
+    /// Sheet frames face right; `flip` mirrors them. `x`, `y` are logical.
+    /// A sheet pixel covers 1/density of a logical pixel, i.e. scale/density physical pixels.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw(&self, c: &mut Canvas, anim: &str, roll: u64, t: f32, seed: u64, x: i32, y: i32, flip: bool) {
+        let a = self.anim(anim, roll);
         let frame = ((t * a.fps) as u32) % a.frames.max(1);
-        let (fw, fh) = (self.frame_w, self.frame_h);
+        let d = self.density as i32;
+        let (fw, fh) = (self.frame_w * self.density, self.frame_h * self.density);
         let (ox, oy) = (frame * fw, a.row * fh);
+        let s = c.scale as i32;
+        let (bx, by) = (x * s, y * s);
         for sy in 0..fh {
+            let (py0, py1) = (by + sy as i32 * s / d, by + (sy as i32 + 1) * s / d);
             for sx in 0..fw {
                 let i = (((oy + sy) * self.sheet_w + ox + sx) * 4) as usize;
                 let Some(p) = self.sheet.get(i..i + 4) else { continue };
@@ -145,17 +178,18 @@ impl Theme {
                     continue;
                 }
                 let rgb = self.swap([p[0], p[1], p[2]], seed);
-                let dx = if flip { fw - 1 - sx } else { sx };
-                c.dot(x + dx as i32, y + sy as i32, rgb, 255);
+                let dx = (if flip { fw - 1 - sx } else { sx }) as i32;
+                c.fill(bx + dx * s / d, py0, bx + (dx + 1) * s / d, py1, rgb, 255);
             }
         }
     }
 
     /// RGBA icon for the tray, cropped to the sprite's bounding box.
     pub fn icon_rgba(&self, size: u32) -> Vec<u8> {
-        let (fw, fh) = (self.frame_w, self.frame_h);
-        let mut c = Canvas::new(fw, fh, 1);
-        self.draw(&mut c, "idle", 0.0, 0, 0, 0, false);
+        // Render at full sheet resolution so hi-res themes keep their detail.
+        let mut c = Canvas::new(self.frame_w, self.frame_h, self.density);
+        let (fw, fh) = (c.w, c.h);
+        self.draw(&mut c, "idle", 0, 0.0, 0, 0, 0, false);
         let (mut x0, mut y0, mut x1, mut y1) = (fw, fh, 0, 0);
         for y in 0..fh {
             for x in 0..fw {
@@ -192,6 +226,9 @@ impl Theme {
     }
 }
 
+/// Config value that mixes every installed theme, one character family per pal.
+pub const RANDOM: &str = "random";
+
 pub fn load_theme(base: &Path, name: &str) -> Theme {
     Theme::load(&base.join("themes").join(name)).unwrap_or_else(|e| {
         log(format!("theme '{name}' failed ({e}), using built-in office"));
@@ -199,16 +236,44 @@ pub fn load_theme(base: &Path, name: &str) -> Theme {
     })
 }
 
-/// Theme folders = any subfolder of themes/ containing theme.json.
-pub fn list_themes(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = std::fs::read_dir(dir)
+/// The themes in play: every installed one for `random`, else just the named one. Never empty.
+pub fn load_set(base: &Path, name: &str) -> Vec<Theme> {
+    if name != RANDOM {
+        return vec![load_theme(base, name)];
+    }
+    let set: Vec<Theme> = list_themes(&base.join("themes"))
+        .iter()
+        .filter_map(|n| match Theme::load(&base.join("themes").join(n)) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                log(format!("theme '{n}' skipped for random ({e})"));
+                None
+            }
+        })
+        .collect();
+    if set.is_empty() {
+        vec![Theme::fallback()]
+    } else {
+        set
+    }
+}
+
+fn theme_dirs(dir: &Path, prefix: &str) -> Vec<String> {
+    std::fs::read_dir(dir)
         .map(|rd| {
             rd.flatten()
                 .filter(|e| e.path().join("theme.json").is_file())
-                .filter_map(|e| e.file_name().to_str().map(String::from))
+                .filter_map(|e| e.file_name().to_str().map(|n| format!("{prefix}{n}")))
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// Theme folders = any subfolder of themes/ containing theme.json, plus themes/local/*
+/// (gitignored, for packs you keep to yourself), listed as "local/<name>".
+pub fn list_themes(dir: &Path) -> Vec<String> {
+    let mut v = theme_dirs(dir, "");
+    v.extend(theme_dirs(&dir.join("local"), "local/"));
     if v.is_empty() {
         v.push("office".into());
     }

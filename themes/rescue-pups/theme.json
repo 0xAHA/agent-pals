@@ -1,0 +1,89 @@
+{
+  "name": "rescue-pups",
+  "frame_w": 32,
+  "frame_h": 40,
+  "density": 2,
+  "sheet": "sheet.png",
+  "anims": {
+    "idle": {
+      "row": 0,
+      "frames": 4,
+      "fps": 3
+    },
+    "walk": {
+      "row": 1,
+      "frames": 4,
+      "fps": 8
+    },
+    "think": {
+      "row": 2,
+      "frames": 4,
+      "fps": 3
+    },
+    "work": {
+      "row": 3,
+      "frames": 4,
+      "fps": 6
+    },
+    "wait": {
+      "row": 4,
+      "frames": 4,
+      "fps": 5
+    },
+    "talk": {
+      "row": 5,
+      "frames": 4,
+      "fps": 5
+    },
+    "done": {
+      "row": 6,
+      "frames": 4,
+      "fps": 6
+    },
+    "idle_2": {
+      "row": 7,
+      "frames": 4,
+      "fps": 3
+    },
+    "idle_3": {
+      "row": 8,
+      "frames": 4,
+      "fps": 3
+    },
+    "work_2": {
+      "row": 9,
+      "frames": 4,
+      "fps": 6
+    },
+    "work_3": {
+      "row": 10,
+      "frames": 4,
+      "fps": 6
+    }
+  },
+  "swaps": [
+    {
+      "key": "#c8965a",
+      "choices": [
+        "#c8965a",
+        "#7a5032",
+        "#ebe1d2",
+        "#323032",
+        "#dcaa46",
+        "#9a9aa0"
+      ]
+    },
+    {
+      "key": "#d23232",
+      "choices": [
+        "#d23232",
+        "#2d64d2",
+        "#32a046",
+        "#f0821e",
+        "#e65aa0",
+        "#f0c828",
+        "#7a46c8"
+      ]
+    }
+  ]
+}
