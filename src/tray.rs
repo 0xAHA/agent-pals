@@ -10,9 +10,15 @@ pub enum TrayCmd {
     Reload,
     OpenDir,
     Quit,
+    CheckUpdates,
+    InstallUpdate,
+    UpdateMode(String),
 }
 
 const SCALES: [u32; 4] = [2, 3, 4, 5];
+/// Config value and menu label for each update mode.
+const UPDATE_MODES: [(&str, &str); 3] =
+    [("notify", "Tell me about updates"), ("auto", "Install updates automatically"), ("off", "Don't check")];
 
 pub struct Tray {
     icon: TrayIcon,
@@ -23,6 +29,10 @@ pub struct Tray {
     reload: MenuItem,
     open_dir: MenuItem,
     quit: MenuItem,
+    /// "Agent Pals 0.2.2 (up to date)", or "Install update 0.3.0" once one is found.
+    update_status: MenuItem,
+    check_updates: MenuItem,
+    update_modes: Vec<(String, CheckMenuItem)>,
     last_tip: String,
 }
 
@@ -53,6 +63,18 @@ impl Tray {
             theme_menu.append(item).map_err(e2s)?;
         }
 
+        let update_menu = Submenu::new("Updates", true);
+        let update_status = MenuItem::new(format!("Agent Pals {}", crate::update::CURRENT), false, None);
+        let check_updates = MenuItem::new("Check now", cfg.updates != "off", None);
+        let update_modes: Vec<(String, CheckMenuItem)> = UPDATE_MODES
+            .iter()
+            .map(|(v, label)| (v.to_string(), CheckMenuItem::new(*label, true, cfg.updates == *v, None)))
+            .collect();
+        update_menu.append_items(&[&update_status, &check_updates, &PredefinedMenuItem::separator()]).map_err(e2s)?;
+        for (_, item) in &update_modes {
+            update_menu.append(item).map_err(e2s)?;
+        }
+
         let autostart = CheckMenuItem::new("Start with Windows", true, crate::autostart::enabled(), None);
         let reload = MenuItem::new("Reload profiles and themes", true, None);
         let open_dir = MenuItem::new("Open config folder", true, None);
@@ -63,6 +85,7 @@ impl Tray {
             &theme_menu,
             &PredefinedMenuItem::separator(),
             &autostart,
+            &update_menu,
             &reload,
             &open_dir,
             &PredefinedMenuItem::separator(),
@@ -77,7 +100,20 @@ impl Tray {
             .build()
             .map_err(e2s)?;
 
-        Ok(Tray { icon, show, autostart, scales, themes, reload, open_dir, quit, last_tip: String::new() })
+        Ok(Tray {
+            icon,
+            show,
+            autostart,
+            scales,
+            themes,
+            reload,
+            open_dir,
+            quit,
+            update_status,
+            check_updates,
+            update_modes,
+            last_tip: String::new(),
+        })
     }
 
     /// Non-blocking; call after each dispatched message.
@@ -99,6 +135,20 @@ impl Tray {
         if id == self.quit.id() {
             return Some(TrayCmd::Quit);
         }
+        if id == self.check_updates.id() {
+            return Some(TrayCmd::CheckUpdates);
+        }
+        if id == self.update_status.id() {
+            return Some(TrayCmd::InstallUpdate);
+        }
+        if let Some((m, _)) = self.update_modes.iter().find(|(_, i)| i.id() == id) {
+            let m = m.clone();
+            for (v, i) in &self.update_modes {
+                i.set_checked(*v == m);
+            }
+            self.check_updates.set_enabled(m != "off");
+            return Some(TrayCmd::UpdateMode(m));
+        }
         if let Some((s, _)) = self.scales.iter().find(|(_, i)| i.id() == id) {
             let s = *s;
             for (v, i) in &self.scales {
@@ -114,6 +164,12 @@ impl Tray {
             return Some(TrayCmd::Theme(n));
         }
         None
+    }
+
+    /// The status line at the top of Updates; `clickable` when it installs an update.
+    pub fn set_update_status(&self, text: &str, clickable: bool) {
+        self.update_status.set_text(text);
+        self.update_status.set_enabled(clickable);
     }
 
     /// Re-sync the tick with the registry, e.g. after a failed write.

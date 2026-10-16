@@ -2,6 +2,7 @@
 
 mod autostart;
 mod config;
+mod http;
 mod ipc;
 mod overlay;
 mod profile;
@@ -9,15 +10,18 @@ mod render;
 mod scene;
 mod sprites;
 mod tray;
+mod update;
 
 use config::{log, Config};
 use overlay::Overlay;
 use render::{Canvas, BUBBLE_H};
 use scene::Scene;
 use sprites::Theme;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::time::Instant;
 use tray::{Tray, TrayCmd};
+use update::{Release, UpdateMsg};
 use windows::core::w;
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
 use windows::Win32::System::Threading::CreateMutexW;
@@ -97,7 +101,19 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     ipc::spawn_server(tx, overlay.hwnd_raw());
     let loaded: Vec<&str> = themes.iter().map(|t| t.name.as_str()).collect();
-    log(format!("started: {} profiles, theme '{}' ({})", profiles.len(), cfg.theme, loaded.join(", ")));
+    log(format!(
+        "started {}: {} profiles, theme '{}' ({})",
+        update::CURRENT,
+        profiles.len(),
+        cfg.theme,
+        loaded.join(", ")
+    ));
+
+    let (utx, urx) = mpsc::channel();
+    let updates_on = Arc::new(AtomicBool::new(cfg.updates != "off"));
+    update::spawn_schedule(utx.clone(), overlay.hwnd_raw(), updates_on.clone());
+    let mut available: Option<Release> = None;
+    let mut installing = false;
 
     let mut tick = Tick::Off;
     let mut last = Instant::now();
@@ -121,6 +137,40 @@ fn main() {
             dirty = true;
         } else if msg.message == WM_TIMER && msg.wParam.0 == TIMER_ID {
             dirty = true;
+        } else if msg.message == update::WM_APP_UPDATE {
+            while let Ok(m) = urx.try_recv() {
+                match m {
+                    UpdateMsg::Checked { result: Ok(Some(rel)), .. } => {
+                        log(format!("update {} available", rel.version));
+                        tray.set_update_status(&format!("Install update {}", rel.version), true);
+                        available = Some(rel);
+                    }
+                    UpdateMsg::Checked { result: Ok(None), manual } => {
+                        if manual {
+                            tray.set_update_status(&format!("Agent Pals {} (up to date)", update::CURRENT), false);
+                        }
+                    }
+                    UpdateMsg::Checked { result: Err(e), manual } => {
+                        log(format!("update check failed: {e}"));
+                        if manual {
+                            tray.set_update_status("Update check failed (see log)", false);
+                        }
+                    }
+                    UpdateMsg::InstallStarted(v) => {
+                        // The installer stops this process shortly.
+                        log(format!("installing update {v}"));
+                        tray.set_update_status(&format!("Installing {v}..."), false);
+                    }
+                    UpdateMsg::InstallFailed(e) => {
+                        log(format!("update failed: {e}"));
+                        installing = false;
+                        if let Some(rel) = &available {
+                            tray.set_update_status(&format!("Retry update {} (failed, see log)", rel.version), true);
+                        }
+                    }
+                }
+            }
+            dirty = true;
         }
         if overlay::take_reposition() {
             overlay.reposition(cfg.margin_px);
@@ -132,6 +182,22 @@ fn main() {
             match cmd {
                 TrayCmd::Show(v) => {
                     cfg.visible = v;
+                    cfg.save(dir);
+                }
+                TrayCmd::CheckUpdates => {
+                    tray.set_update_status("Checking for updates...", false);
+                    update::spawn_check(utx.clone(), overlay.hwnd_raw());
+                }
+                TrayCmd::InstallUpdate => {
+                    if let (Some(rel), false) = (&available, installing) {
+                        installing = true;
+                        tray.set_update_status(&format!("Downloading {}...", rel.version), false);
+                        update::spawn_install(rel.clone(), utx.clone(), overlay.hwnd_raw());
+                    }
+                }
+                TrayCmd::UpdateMode(m) => {
+                    updates_on.store(m != "off", Ordering::Relaxed);
+                    cfg.updates = m;
                     cfg.save(dir);
                 }
                 TrayCmd::Autostart(on) => {
@@ -184,7 +250,21 @@ fn main() {
         } else {
             overlay.hide();
         }
-        tray.set_tooltip(&scene.summary());
+        let mut tip = scene.summary();
+        if let Some(rel) = &available {
+            tip.push_str(&format!("\nUpdate {} available", rel.version));
+        }
+        tray.set_tooltip(&tip);
+
+        // Automatic updates wait for a quiet moment: the install restarts the app and replaces
+        // the hook relay mid-session otherwise.
+        if cfg.updates == "auto" && !installing && !scene.busy() {
+            if let Some(rel) = &available {
+                installing = true;
+                tray.set_update_status(&format!("Downloading {}...", rel.version), false);
+                update::spawn_install(rel.clone(), utx.clone(), overlay.hwnd_raw());
+            }
+        }
 
         // Fast frames only while something moves; slow tick for timeouts; nothing when empty.
         let want = if scene.is_empty() {

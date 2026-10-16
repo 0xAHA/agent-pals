@@ -76,8 +76,15 @@ fn debug_capture(raw: &str) {
 /// `to` is SendMessage's recipient, so the overlay can show who is talking to whom.
 const HOIST: &[&str] = &["to"];
 
-/// Keep top-level scalars only (strings capped). Drops tool_input/tool_response,
-/// so file contents and prompts never leave the hook (bar the HOIST fields).
+/// The only fields forwarded: what profiles key on (event, tool, session, subagent, recipient,
+/// label). An allow-list, because hooks also carry top-level text such as `prompt`,
+/// `last_assistant_message` and `message`, and a new field must not leak just by appearing.
+/// `type` and `thread-id` are Codex's event and session fields.
+const KEEP: &[&str] =
+    &["hook_event_name", "tool_name", "session_id", "agent_id", "agent_type", "cwd", "to", "type", "thread-id"];
+
+/// Allow-listed top-level scalars only (strings capped). tool_input, tool_response, prompts,
+/// replies and file contents never leave the hook.
 fn slim(v: Value) -> Value {
     match v {
         Value::Object(mut m) => {
@@ -118,6 +125,22 @@ mod tests {
     }
 
     #[test]
+    fn drops_prompts_and_replies() {
+        // Shapes seen in captured Claude Code payloads.
+        let out = slim(json!({
+            "hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "C:\\work\\proj",
+            "prompt": "my secret prompt", "transcript_path": "C:\\Users\\me\\t.jsonl",
+            "last_assistant_message": "the reply", "message": "Claude needs permission",
+        }));
+        let s = out.to_string();
+        for leaked in ["secret prompt", "the reply", "needs permission", "t.jsonl"] {
+            assert!(!s.contains(leaked), "{leaked} must not be forwarded: {s}");
+        }
+        assert_eq!(out["hook_event_name"], "UserPromptSubmit");
+        assert_eq!(out["cwd"], "C:\\work\\proj");
+    }
+
+    #[test]
     fn hoist_never_overrides_a_top_level_field() {
         let out = slim(json!({ "to": "top", "tool_input": { "to": "nested" } }));
         assert_eq!(out["to"], "top");
@@ -127,6 +150,7 @@ mod tests {
 fn slim_scalars(m: serde_json::Map<String, Value>) -> Value {
     Value::Object(
         m.into_iter()
+            .filter(|(k, _)| KEEP.contains(&k.as_str()))
             .filter_map(|(k, v)| match v {
                 Value::String(s) => Some((k, Value::String(s.chars().take(200).collect()))),
                 Value::Number(_) | Value::Bool(_) => Some((k, v)),

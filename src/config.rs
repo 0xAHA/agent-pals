@@ -51,6 +51,8 @@ pub struct Config {
     pub strip_width: u32,
     pub margin_px: i32,
     pub visible: bool,
+    /// "notify" (offer in the tray), "auto" (install when no agent is busy) or "off".
+    pub updates: String,
 }
 
 impl Default for Config {
@@ -63,6 +65,7 @@ impl Default for Config {
             strip_width: 160,
             margin_px: 8,
             visible: true,
+            updates: "notify".into(),
         }
     }
 }

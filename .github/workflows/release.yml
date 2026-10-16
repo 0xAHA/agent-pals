@@ -1,0 +1,60 @@
+# Push a tag vX.Y.Z (matching Cargo.toml) to publish a release.
+#
+# Assets keep fixed names so that
+#   https://github.com/<owner>/agent-pals/releases/latest/download/AgentPals.msi
+# always points at the newest installer (the README links to it), and the in-app updater
+# finds the installer and its checksum by suffix.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match Cargo.toml
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} does not match Cargo.toml version $v" }
+          "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+          ./tools/build-installer.ps1
+          Copy-Item "dist\AgentPals-$env:VERSION.msi" dist\AgentPals.msi
+          $hash = (Get-FileHash dist\AgentPals.msi -Algorithm SHA256).Hash.ToLower()
+          # sha256sum format, so `sha256sum -c` works too
+          "$hash  AgentPals.msi" | Out-File -Encoding ascii -NoNewline dist\AgentPals.msi.sha256
+
+      - name: Release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern "^## \[$([regex]::Escape($env:VERSION))\]" | Select-Object -First 1).LineNumber
+          if (-not $start) { throw "CHANGELOG.md has no section for $env:VERSION" }
+          $rest = $lines[$start..($lines.Count - 1)]
+          $end = ($rest | Select-String -Pattern '^## ' | Select-Object -First 1).LineNumber
+          $notes = if ($end) { $rest[0..($end - 2)] } else { $rest }
+          $notes += ""
+          $notes += "**Download:** [AgentPals.msi](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AgentPals.msi)"
+          $notes | Out-File -Encoding utf8 notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create ${{ github.ref_name }} dist/AgentPals.msi dist/AgentPals.msi.sha256 --title "Agent Pals ${{ github.ref_name }}" --notes-file notes.md

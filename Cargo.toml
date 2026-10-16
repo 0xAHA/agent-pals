@@ -1,6 +1,9 @@
 [package]
 name = "agent-pals"
-version = "0.2.2"
+version = "0.3.0"
+description = "Pixel-art pals above the Windows taskbar that act out what your coding agents are doing"
+license = "MIT"
+repository = "https://github.com/0xAHA/agent-pals"
 edition = "2021"
 
 [[bin]]
@@ -26,6 +29,8 @@ version = "0.58"
 features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
+  "Win32_Networking_WinHttp",
+  "Win32_Security_Cryptography",
   "Win32_Security",
   "Win32_Storage_FileSystem",
   "Win32_System_IO",

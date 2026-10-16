@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: cargo test --release
+      - name: Check the installer builds
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+          ./tools/build-installer.ps1

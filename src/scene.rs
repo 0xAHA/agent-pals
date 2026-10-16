@@ -182,6 +182,14 @@ impl Scene {
         self.pals.is_empty()
     }
 
+    /// Any agent mid-task. An update restarts the app and swaps the hook relay, so automatic
+    /// installs wait until this is false.
+    pub fn busy(&self) -> bool {
+        self.pals.iter().any(|p| {
+            !p.leaving && matches!(p.state, AgentState::Working | AgentState::Thinking | AgentState::Waiting)
+        })
+    }
+
     fn find(&self, key: &str) -> Option<usize> {
         self.pals.iter().position(|p| p.key == key)
     }
