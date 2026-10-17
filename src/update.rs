@@ -16,8 +16,8 @@ use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 
 pub const REPO: &str = "0xAHA/agent-pals";
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
-/// Wakes the UI thread when an UpdateMsg is queued.
-pub const WM_APP_UPDATE: u32 = WM_APP + 2;
+/// Wakes the UI thread when an UpdateMsg is queued. (WM_APP+1 is ipc, +2 the overlay's nudge.)
+pub const WM_APP_UPDATE: u32 = WM_APP + 3;
 const FIRST_CHECK: Duration = Duration::from_secs(30);
 const EVERY: Duration = Duration::from_secs(6 * 3600);
 

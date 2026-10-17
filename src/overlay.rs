@@ -1,3 +1,4 @@
+use crate::config::Placement;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -27,10 +28,12 @@ pub struct Overlay {
     y: i32,
     shown: bool,
     last_topmost: Instant,
+    /// Set before calling `reposition` (directly or via `resize`).
+    pub placement: Placement,
 }
 
 impl Overlay {
-    pub fn create(w: i32, h: i32, margin: i32) -> Result<Self> {
+    pub fn create(w: i32, h: i32, margin: i32, placement: Placement) -> Result<Self> {
         unsafe {
             let hinst: HINSTANCE = GetModuleHandleW(None)?.into();
             let class = w!("AgentPalsOverlay");
@@ -55,6 +58,7 @@ impl Overlay {
                 y: 0,
                 shown: false,
                 last_topmost: Instant::now(),
+                placement,
             };
             o.resize(w, h, margin)?;
             Ok(o)
@@ -95,7 +99,8 @@ impl Overlay {
         Ok(())
     }
 
-    /// Bottom-right of the primary work area, i.e. just above the tray for a bottom taskbar.
+    /// Bottom of the primary work area, i.e. just above a bottom taskbar: at its right end
+    /// (by the tray), its left end, or centred.
     pub fn reposition(&mut self, margin: i32) {
         let mut wa = RECT::default();
         unsafe {
@@ -106,7 +111,11 @@ impl Overlay {
                 SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
             );
         }
-        self.x = wa.right - self.w - margin;
+        self.x = match self.placement {
+            Placement::Right => wa.right - self.w - margin,
+            Placement::Left => wa.left + margin,
+            Placement::Center => wa.left + (wa.right - wa.left - self.w) / 2,
+        };
         self.y = wa.bottom - self.h;
     }
 

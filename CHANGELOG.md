@@ -2,6 +2,12 @@
 
 Each release's notes are taken from its section here by the release workflow.
 
+## [0.3.2]
+
+- **Choose where the pals live:** tray **Position** puts the strip at the left, middle or
+  right of the taskbar (`position` in `config.json`). Pals line up from that end and come and
+  go by its edge. Right, by the tray, stays the default.
+
 ## [0.3.1]
 
 - **Idle pals step away.** A pal that has been idle for 2 minutes walks off; it comes back,

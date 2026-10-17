@@ -78,6 +78,7 @@ Right-click the pal icon in the notification area.
 | --- | --- |
 | Show pals | Hide or show the strip without quitting |
 | Scale | Size of the pals. **2x** and **4x** are pixel-perfect |
+| Position | Left, middle or right of the taskbar. Pals line up from that end and come and go by its edge |
 | Theme | A character family, or **random** |
 | Start with Windows | Start at sign-in |
 | Updates | Check now, install an available update, or choose how updates work (below) |
@@ -105,10 +106,11 @@ also edit it by hand; quit and restart the app afterwards.
 | --- | --- | --- |
 | `theme` | `"random"` | A theme folder name, `local/<name>` for your own, or `random` |
 | `scale` | `2` | Screen pixels per sprite pixel-block |
+| `position` | `"right"` | `left`, `center` or `right` along the top of the taskbar |
 | `fps` | `10` | Animation frame rate (2 to 30) |
 | `max_agents` | `8` | Most pals on screen at once |
 | `strip_width` | `160` | Width of the strip, in sprite pixels |
-| `margin_px` | `8` | Gap between the strip and the taskbar |
+| `margin_px` | `8` | Gap between the strip and the screen edge (left or right placement) |
 | `visible` | `true` | Same as **Show pals** |
 | `updates` | `"notify"` | `notify`, `auto` or `off` |
 | `hide_idle_secs` | `120` | Seconds idle before a pal steps away; `0` keeps it on screen |

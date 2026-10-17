@@ -6,6 +6,7 @@ pub enum TrayCmd {
     Show(bool),
     Autostart(bool),
     Scale(u32),
+    Position(String),
     Theme(String),
     Reload,
     OpenDir,
@@ -16,6 +17,8 @@ pub enum TrayCmd {
 }
 
 const SCALES: [u32; 4] = [2, 3, 4, 5];
+/// Config value and menu label for each strip position.
+const POSITIONS: [(&str, &str); 3] = [("left", "Left"), ("center", "Middle"), ("right", "Right")];
 /// Config value and menu label for each update mode.
 const UPDATE_MODES: [(&str, &str); 3] =
     [("notify", "Tell me about updates"), ("auto", "Install updates automatically"), ("off", "Don't check")];
@@ -25,6 +28,7 @@ pub struct Tray {
     show: CheckMenuItem,
     autostart: CheckMenuItem,
     scales: Vec<(u32, CheckMenuItem)>,
+    positions: Vec<(String, CheckMenuItem)>,
     themes: Vec<(String, CheckMenuItem)>,
     reload: MenuItem,
     open_dir: MenuItem,
@@ -52,6 +56,19 @@ impl Tray {
             .collect();
         for (_, item) in &scales {
             scale_menu.append(item).map_err(e2s)?;
+        }
+
+        let position_menu = Submenu::new("Position", true);
+        let current = crate::config::Placement::parse(&cfg.position);
+        let positions: Vec<(String, CheckMenuItem)> = POSITIONS
+            .iter()
+            .map(|(v, label)| {
+                let on = crate::config::Placement::parse(v) == current;
+                (v.to_string(), CheckMenuItem::new(*label, true, on, None))
+            })
+            .collect();
+        for (_, item) in &positions {
+            position_menu.append(item).map_err(e2s)?;
         }
 
         let theme_menu = Submenu::new("Theme", true);
@@ -82,6 +99,7 @@ impl Tray {
         menu.append_items(&[
             &show,
             &scale_menu,
+            &position_menu,
             &theme_menu,
             &PredefinedMenuItem::separator(),
             &autostart,
@@ -105,6 +123,7 @@ impl Tray {
             show,
             autostart,
             scales,
+            positions,
             themes,
             reload,
             open_dir,
@@ -155,6 +174,13 @@ impl Tray {
                 i.set_checked(*v == s);
             }
             return Some(TrayCmd::Scale(s));
+        }
+        if let Some((v, _)) = self.positions.iter().find(|(_, i)| i.id() == id) {
+            let v = v.clone();
+            for (p, i) in &self.positions {
+                i.set_checked(*p == v);
+            }
+            return Some(TrayCmd::Position(v));
         }
         if let Some((n, _)) = self.themes.iter().find(|(_, i)| i.id() == id) {
             let n = n.clone();

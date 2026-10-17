@@ -56,6 +56,26 @@ pub struct Config {
     /// Seconds a pal may sit idle before it walks off (it returns with its agent's next event).
     /// 0 keeps it on stage.
     pub hide_idle_secs: u64,
+    /// Where along the taskbar the strip sits: "left", "center" or "right".
+    pub position: String,
+}
+
+/// Where the strip sits above the taskbar, and so which edge pals line up from and walk off by.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Placement {
+    Left,
+    Center,
+    Right,
+}
+
+impl Placement {
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "left" => Placement::Left,
+            "center" | "centre" | "middle" => Placement::Center,
+            _ => Placement::Right,
+        }
+    }
 }
 
 impl Default for Config {
@@ -70,6 +90,7 @@ impl Default for Config {
             visible: true,
             updates: "notify".into(),
             hide_idle_secs: 120,
+            position: "right".into(),
         }
     }
 }

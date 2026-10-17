@@ -1,3 +1,4 @@
+use crate::config::Placement;
 use crate::ipc::Envelope;
 use crate::profile::{Action, AgentState, Profiles};
 use crate::render::{draw_bubble, Bubble, Canvas, BUBBLE_H};
@@ -149,6 +150,8 @@ pub struct Scene {
     hide_idle: Option<Duration>,
     /// Theme of pals that left, so a session that comes back keeps its character.
     remembered: HashMap<String, usize>,
+    /// Pals line up from this end of the strip and arrive and leave by its nearest edge.
+    anchor: Placement,
 }
 
 impl Scene {
@@ -162,9 +165,15 @@ impl Scene {
             n_themes: 1,
             hide_idle: None,
             remembered: HashMap::new(),
+            anchor: Placement::Right,
         };
         s.set_frame_w(frame_w);
         s
+    }
+
+    pub fn set_anchor(&mut self, a: Placement) {
+        self.anchor = a;
+        self.layout(Instant::now());
     }
 
     /// 0 keeps idle pals on stage until the profile's idle timeout.
@@ -221,8 +230,17 @@ impl Scene {
         self.pals.iter().filter(|p| !p.leaving).count()
     }
 
+    /// Just past the strip's outer edge: the screen edge side when the strip sits at one,
+    /// the tray side when centred.
     fn offstage(&self) -> f32 {
-        self.strip_w + 2.0
+        match self.anchor {
+            Placement::Left => -(self.frame_w + 2.0),
+            Placement::Right | Placement::Center => self.strip_w + 2.0,
+        }
+    }
+
+    fn is_offstage(&self, x: f32) -> bool {
+        (x - self.offstage()).abs() < 0.5
     }
 
     pub fn apply(&mut self, env: &Envelope, profiles: &Profiles, now: Instant) {
@@ -378,19 +396,33 @@ impl Scene {
         }
     }
 
-    /// Slots fill from the right (tray side) leftwards; leavers walk off right.
-    /// A pal visiting someone stands beside them, on the near side, until the chat ends.
+    /// Slots fill inwards from the anchored end (both ways from the middle when centred);
+    /// leavers walk off by `offstage`. A pal visiting someone stands beside them, on the near
+    /// side, until the chat ends.
     fn layout(&mut self, now: Instant) {
         let step = self.frame_w + GAP;
         let off = self.offstage();
+        let n = self.active() as f32;
+        // Left edge of slot i (0-based, in strip order).
+        let slot_x = |i: f32| match self.anchor {
+            Placement::Right => self.strip_w - (i + 1.0) * step,
+            Placement::Left => GAP + i * step,
+            Placement::Center => (self.strip_w - n * step + GAP) / 2.0 + (n - 1.0 - i) * step,
+        };
         let mut slot = 0.0;
-        for p in self.pals.iter_mut() {
-            if p.leaving {
-                p.target_x = off;
-                p.visiting = None;
+        let mut targets = Vec::with_capacity(self.pals.len());
+        for p in &self.pals {
+            targets.push(if p.leaving {
+                off
             } else {
                 slot += 1.0;
-                p.target_x = self.strip_w - slot * step;
+                slot_x(slot - 1.0)
+            });
+        }
+        for (p, t) in self.pals.iter_mut().zip(targets) {
+            p.target_x = t;
+            if p.leaving {
+                p.visiting = None;
             }
         }
         let slots: Vec<(String, f32)> = self.pals.iter().map(|p| (p.key.clone(), p.target_x)).collect();
@@ -455,14 +487,15 @@ impl Scene {
                 }
             }
         }
-        let gone = self.offstage() - 0.5;
         if self.remembered.len() > 256 {
             self.remembered.clear();
         }
-        for p in self.pals.iter().filter(|p| p.leaving && p.x >= gone) {
+        let gone: Vec<bool> = self.pals.iter().map(|p| p.leaving && self.is_offstage(p.x)).collect();
+        for (p, _) in self.pals.iter().zip(&gone).filter(|(_, g)| **g) {
             self.remembered.insert(p.key.clone(), p.theme);
         }
-        self.pals.retain(|p| !(p.leaving && p.x >= gone));
+        let mut it = gone.into_iter();
+        self.pals.retain(|_| !it.next().unwrap_or(false));
         self.layout(now);
     }
 
@@ -669,6 +702,45 @@ mod tests {
         s.tick(0.1, t0 + Duration::from_secs(5));
         s.tick(0.1, t0 + Duration::from_secs(300));
         assert!(!pal(&s, "claude-code:s1").leaving, "background agents are still running");
+    }
+
+    fn sessions(s: &mut Scene, p: &Profiles, ids: &[&str]) {
+        for id in ids {
+            ev(s, p, json!({ "session_id": id, "hook_event_name": "PreToolUse", "tool_name": "Bash" }));
+        }
+    }
+
+    fn targets(s: &Scene) -> Vec<f32> {
+        s.pals.iter().map(|p| p.target_x).collect()
+    }
+
+    #[test]
+    fn right_placement_lines_up_from_the_tray_end() {
+        let (mut s, p) = scene(); // strip 160, frame 16, GAP 2
+        sessions(&mut s, &p, &["a", "b"]);
+        assert_eq!(targets(&s), [160.0 - 18.0, 160.0 - 36.0]);
+    }
+
+    #[test]
+    fn left_placement_lines_up_from_the_left_and_leaves_that_way() {
+        let (mut s, p) = scene();
+        s.set_anchor(Placement::Left);
+        sessions(&mut s, &p, &["a", "b"]);
+        assert_eq!(targets(&s), [2.0, 20.0]);
+        assert!(s.pals.iter().all(|p| p.x < 0.0), "arrives from the left edge");
+        ev(&mut s, &p, json!({ "session_id": "a", "hook_event_name": "SessionEnd" }));
+        walk_off(&mut s, Instant::now());
+        assert_eq!(s.pals.len(), 1, "left by the left edge and was removed");
+    }
+
+    #[test]
+    fn center_placement_keeps_the_group_centred() {
+        let (mut s, p) = scene();
+        s.set_anchor(Placement::Center);
+        sessions(&mut s, &p, &["a", "b", "c"]);
+        let t = targets(&s);
+        let (lo, hi) = (t.iter().cloned().fold(f32::MAX, f32::min), t.iter().cloned().fold(f32::MIN, f32::max) + 16.0);
+        assert!(((lo + hi) / 2.0 - 80.0).abs() < 0.01, "group centred on the strip: {t:?}");
     }
 
     #[test]

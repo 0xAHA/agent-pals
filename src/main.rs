@@ -12,7 +12,7 @@ mod sprites;
 mod tray;
 mod update;
 
-use config::{log, Config};
+use config::{log, Config, Placement};
 use overlay::Overlay;
 use render::{Canvas, BUBBLE_H};
 use scene::Scene;
@@ -80,9 +80,11 @@ fn main() {
     let mut scene = Scene::new(cfg.strip_width as f32, fw as f32, cfg.max_agents);
     scene.set_theme_count(themes.len());
     scene.set_hide_idle(cfg.hide_idle_secs);
+    let placement = Placement::parse(&cfg.position);
+    scene.set_anchor(placement);
     let mut canvas = Canvas::new(cfg.strip_width, fh + BUBBLE_H, cfg.scale);
 
-    let mut overlay = match Overlay::create(canvas.w as i32, canvas.h as i32, cfg.margin_px) {
+    let mut overlay = match Overlay::create(canvas.w as i32, canvas.h as i32, cfg.margin_px, placement) {
         Ok(o) => o,
         Err(e) => {
             log(format!("overlay create failed: {e}"));
@@ -211,6 +213,14 @@ fn main() {
                     cfg.scale = s;
                     cfg.save(dir);
                     fit(&mut canvas, &mut overlay, &cfg, &themes);
+                }
+                TrayCmd::Position(v) => {
+                    let placement = Placement::parse(&v);
+                    cfg.position = v;
+                    cfg.save(dir);
+                    overlay.placement = placement;
+                    overlay.reposition(cfg.margin_px);
+                    scene.set_anchor(placement);
                 }
                 TrayCmd::Theme(name) => {
                     themes = sprites::load_set(dir, &name);
