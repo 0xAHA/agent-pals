@@ -160,8 +160,24 @@ impl Theme {
 
     /// Sheet frames face right; `flip` mirrors them. `x`, `y` are logical.
     /// A sheet pixel covers 1/density of a logical pixel, i.e. scale/density physical pixels.
+    /// `opacity` 0..=1 fades the whole sprite (pals fade at the strip's edges).
     #[allow(clippy::too_many_arguments)]
-    pub fn draw(&self, c: &mut Canvas, anim: &str, roll: u64, t: f32, seed: u64, x: i32, y: i32, flip: bool) {
+    pub fn draw(
+        &self,
+        c: &mut Canvas,
+        anim: &str,
+        roll: u64,
+        t: f32,
+        seed: u64,
+        x: i32,
+        y: i32,
+        flip: bool,
+        opacity: f32,
+    ) {
+        let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+        if alpha == 0 {
+            return;
+        }
         let a = self.anim(anim, roll);
         let frame = ((t * a.fps) as u32) % a.frames.max(1);
         let d = self.density as i32;
@@ -179,7 +195,7 @@ impl Theme {
                 }
                 let rgb = self.swap([p[0], p[1], p[2]], seed);
                 let dx = (if flip { fw - 1 - sx } else { sx }) as i32;
-                c.fill(bx + dx * s / d, py0, bx + (dx + 1) * s / d, py1, rgb, 255);
+                c.fill(bx + dx * s / d, py0, bx + (dx + 1) * s / d, py1, rgb, alpha);
             }
         }
     }
@@ -189,7 +205,7 @@ impl Theme {
         // Render at full sheet resolution so hi-res themes keep their detail.
         let mut c = Canvas::new(self.frame_w, self.frame_h, self.density);
         let (fw, fh) = (c.w, c.h);
-        self.draw(&mut c, "idle", 0, 0.0, 0, 0, 0, false);
+        self.draw(&mut c, "idle", 0, 0.0, 0, 0, 0, false, 1.0);
         let (mut x0, mut y0, mut x1, mut y1) = (fw, fh, 0, 0);
         for y in 0..fh {
             for x in 0..fw {

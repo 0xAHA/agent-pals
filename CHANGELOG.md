@@ -2,6 +2,12 @@
 
 Each release's notes are taken from its section here by the release workflow.
 
+## [0.3.3]
+
+- **Pals fade in and out at the edges** of the strip instead of being cut off by it. A pal
+  standing in its spot is never faded, and a fading pal passing in front of another blends
+  over it rather than leaving a see-through gap.
+
 ## [0.3.2]
 
 - **Choose where the pals live:** tray **Position** puts the strip at the left, middle or

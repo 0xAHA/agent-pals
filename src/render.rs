@@ -30,15 +30,17 @@ impl Canvas {
         self.fill(lx * s, ly * s, lx * s + s, ly * s + s, rgb, a);
     }
 
-    /// Fill physical pixels [x0, x1) x [y0, y1), clipped to the canvas.
+    /// Fill physical pixels [x0, x1) x [y0, y1), clipped to the canvas. Opaque fills replace;
+    /// translucent ones (a fading pal, a shadow) blend over what is already there, so a
+    /// half-faded pal passing in front of another doesn't punch a hole in it.
     pub fn fill(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, rgb: [u8; 3], a: u8) {
         let (w, h) = (self.w as i32, self.h as i32);
         let (x0, y0, x1, y1) = (x0.max(0), y0.max(0), x1.min(w), y1.min(h));
-        if x0 >= x1 || y0 >= y1 {
+        if x0 >= x1 || y0 >= y1 || a == 0 {
             return;
         }
         let pa = a as u32;
-        let px = [
+        let src = [
             (rgb[2] as u32 * pa / 255) as u8,
             (rgb[1] as u32 * pa / 255) as u8,
             (rgb[0] as u32 * pa / 255) as u8,
@@ -48,9 +50,46 @@ impl Canvas {
             let row = (y * w) as usize;
             for x in x0..x1 {
                 let i = (row + x as usize) * 4;
-                self.px[i..i + 4].copy_from_slice(&px);
+                let px = &mut self.px[i..i + 4];
+                if a == 255 {
+                    px.copy_from_slice(&src);
+                } else {
+                    // Premultiplied source-over: out = src + dst * (1 - src_alpha).
+                    let keep = 255 - pa;
+                    for (d, s) in px.iter_mut().zip(src) {
+                        *d = (s as u32 + *d as u32 * keep / 255).min(255) as u8;
+                    }
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn px(c: &Canvas, x: usize) -> [u8; 4] {
+        c.px[x * 4..x * 4 + 4].try_into().unwrap()
+    }
+
+    #[test]
+    fn opaque_replaces_and_translucent_blends() {
+        let mut c = Canvas::new(2, 1, 1);
+        c.fill(0, 0, 2, 1, [255, 0, 0], 255); // red, stored BGRA
+        assert_eq!(px(&c, 0), [0, 0, 255, 255]);
+        c.fill(0, 0, 1, 1, [0, 0, 255], 128); // half blue over red
+        let [b, g, r, a] = px(&c, 0);
+        assert!(b > 120 && r > 120 && g == 0 && a == 255, "blended, still opaque: {:?}", px(&c, 0));
+        c.fill(1, 0, 2, 1, [0, 0, 255], 0);
+        assert_eq!(px(&c, 1), [0, 0, 255, 255], "alpha 0 leaves it untouched");
+    }
+
+    #[test]
+    fn translucent_over_empty_stays_translucent() {
+        let mut c = Canvas::new(1, 1, 1);
+        c.fill(0, 0, 1, 1, [255, 255, 255], 64);
+        assert_eq!(px(&c, 0)[3], 64);
     }
 }
 

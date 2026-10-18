@@ -139,6 +139,14 @@ impl Pal {
     }
 }
 
+/// Opacity of a pal whose left edge is at `x`: 1 anywhere a slot can be (slots keep GAP from
+/// the strip's ends), falling to 0 over one sprite width as it walks out past either end, so
+/// pals fade at the edge instead of being cut off by it.
+fn edge_fade(x: f32, fw: f32, strip_w: f32) -> f32 {
+    let inside = x.min(strip_w - fw - x);
+    ((inside + fw) / (fw + GAP)).clamp(0.0, 1.0)
+}
+
 pub struct Scene {
     pals: Vec<Pal>,
     strip_w: f32,
@@ -519,11 +527,12 @@ impl Scene {
             let fh = theme.frame_h as i32;
             let y = floor - fh;
             let x = p.x.round() as i32;
+            let fade = edge_fade(p.x, fw as f32, self.strip_w);
             for dx in 4..fw - 4 {
-                c.dot(x + dx, y + fh - 1, [0, 0, 0], 70);
+                c.dot(x + dx, y + fh - 1, [0, 0, 0], (70.0 * fade) as u8);
             }
             let t = p.anim_t * p.speed + p.phase;
-            theme.draw(c, p.anim_name(now), p.roll, t, p.seed, x, y, p.facing_left);
+            theme.draw(c, p.anim_name(now), p.roll, t, p.seed, x, y, p.facing_left, fade);
             if let Some(b) = p.bubble(now) {
                 let bounce = if b == Bubble::Bang && (p.anim_t * 4.0) as u32 % 2 == 0 { 1 } else { 0 };
                 draw_bubble(c, x + 8, y - 10 - bounce + 1, b);
@@ -712,6 +721,25 @@ mod tests {
 
     fn targets(s: &Scene) -> Vec<f32> {
         s.pals.iter().map(|p| p.target_x).collect()
+    }
+
+    #[test]
+    fn pals_fade_only_outside_their_slots() {
+        let (fw, w) = (16.0, 160.0);
+        // Every resting slot, at every placement, is fully opaque.
+        for anchor in [Placement::Left, Placement::Center, Placement::Right] {
+            let (mut s, p) = scene();
+            s.set_anchor(anchor);
+            sessions(&mut s, &p, &["a", "b", "c", "d", "e", "f", "g", "h"]);
+            for t in targets(&s) {
+                assert_eq!(edge_fade(t, fw, w), 1.0, "{anchor:?} slot at {t}");
+            }
+        }
+        // Off stage at either end: invisible. Halfway out: about half.
+        assert_eq!(edge_fade(w + 2.0, fw, w), 0.0);
+        assert_eq!(edge_fade(-(fw + 2.0), fw, w), 0.0);
+        let half = edge_fade(w - fw / 2.0, fw, w);
+        assert!(half > 0.3 && half < 0.7, "{half}");
     }
 
     #[test]
