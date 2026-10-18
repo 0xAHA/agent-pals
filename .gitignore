@@ -3,3 +3,4 @@
 agent-pals.log
 # Personal theme packs, never committed
 /themes/local/
+__pycache__/
